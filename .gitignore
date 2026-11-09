@@ -1,0 +1,46 @@
+# Note for AI Agents:
+# Repository operating guidelines, architecture, provider rules, and verification checklists are maintained in AGENTS.md.
+# Read AGENTS.md upon startup and keep it updated.
+#
+# AGENTS.local.md holds the real project journal (Active Requests / Known Bugs /
+# TODOs, with real specifics) — split out from AGENTS.md so the committed AGENTS.md
+# stays generic and shareable. Never committed.
+AGENTS.local.md
+ANTIGRAVITY_FEEDBACK.md
+CLAUDE.md
+CLAUDE_FEEDBACK.md
+
+# macOS metadata
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Private Data, Statements & Datasets (Never committed to Git)
+*.csv
+*.xlsx
+*.pdf
+*.db
+*.db-journal
+*.db-wal
+config.json
+!config.example.json
+category_rules.json
+!category_rules.example.json
+data/
+
+# Python & Virtualenvs
+__pycache__/
+*.py[cod]
+.direnv/
+.venv/
+venv/
+
+# Local scratch & backups
+.env
+*.log
+scratch/
+.bak_archive/
+
+# Optional local PII word list used by finance/pii_guard.py
+.pii_denylist.local

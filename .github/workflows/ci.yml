@@ -1,0 +1,45 @@
+name: CI Quality & Syntax Audit
+
+on:
+  push:
+    branches: [ main, merged ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, merged ]
+
+jobs:
+  validate:
+    name: Syntax, Permissions & Provider Self-Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+
+      - name: Install dependencies
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Every Python file compiles
+        run: |
+          find . -name '*.py' -not -path './.git/*' -print0 | xargs -0 python3 -m py_compile
+
+      - name: Check script execute bits (u+x)
+        run: ./fix_exec_bits.sh --check
+
+      - name: Run built-in provider self-tests
+        working-directory: finance
+        env:
+          PDF_AUDIT_CONFIG: config.example.json
+        run: |
+          python3 -c "from statements import config; from statements.providers import AVAILABLE_PROVIDERS; cfg = config.load(); assert all(p.run_self_test(cfg)['ok'] for p in AVAILABLE_PROVIDERS if p.name != 'generic')"
+
+      - name: Unit tests
+        working-directory: finance
+        env:
+          PDF_AUDIT_CONFIG: config.example.json
+        run: python3 -m unittest discover -s tests -v

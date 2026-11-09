@@ -1,0 +1,84 @@
+{
+  "directories": {
+    "landing": "~/Downloads",
+    "finance": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance",
+    "statements": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements",
+    "pdf": "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
+    "data": "~/Library/Application Support/pdf-audit"
+  },
+  "scan_dirs": [
+    "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC",
+    "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank",
+    "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING",
+    "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
+    "~/Downloads"
+  ],
+  "skip_dirs": [
+    "old",
+    "Archive",
+    "Duplicates",
+    ".Trash"
+  ],
+  "recursive": false,
+  "providers": {
+    "hsbc": {
+      "enabled": true,
+      "display_name": "HSBC Australia",
+      "target_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC"
+    },
+    "commbank": {
+      "enabled": true,
+      "display_name": "Commonwealth Bank",
+      "target_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank"
+    },
+    "ing": {
+      "enabled": true,
+      "display_name": "ING Australia",
+      "target_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING"
+    }
+  },
+  "category_rules": {
+    "SAMPLE MERCHANT": "Groceries & Dining",
+    "AIRLINE NAME": "Travel & Holidays"
+  },
+  "accounts": {
+    "000000000": {
+      "ownership": "solo",
+      "alias": "Example Account",
+      "bank": "Example Bank"
+    }
+  },
+  "personal": {
+    "property_profile": {
+      "address": "1 Example St",
+      "purchase_price": 1000000.0,
+      "current_valuation": 1100000.0
+    },
+    "property_valuation_anchors": [
+      [
+        "2020-01",
+        1000000.0
+      ],
+      [
+        "2026-01",
+        1100000.0
+      ]
+    ],
+    "renovation_breakdown": [],
+    "ess_history": [],
+    "remittances": [],
+    "holdings_defaults": {
+      "total_held_shares": 0,
+      "current_price": 0.0,
+      "total_current_val": 0.0,
+      "total_cost_basis": 0.0
+    },
+    "vehicle_purchase_refs": [],
+    "renovation_window": [
+      "2020-01-01",
+      "2020-06-30"
+    ],
+    "departure_date": "",
+    "forfeited_shares": 0
+  }
+}
