@@ -6962,6 +6962,25 @@ def render_html_report(data: Dict[str, Any]) -> str:
     return html
 
 
+def resolve_report_path(cfg: Optional[Dict[str, Any]] = None) -> str:
+    """Where the HTML report is written. Configurable in config.json (all optional):
+
+    1. "report_path": full path of the HTML file
+    2. "directories" -> "reports": folder, file is index.html
+    3. "directories" -> "statements": folder, file is index.html
+    4. iCloud Finance/Statements/index.html
+    """
+    cfg = cfg if cfg is not None else config.load()
+    explicit = cfg.get("report_path")
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit))
+    dirs = cfg.get("directories") or {}
+    folder = dirs.get("reports") or dirs.get("statements") or os.path.expanduser(
+        f"{config.ICLOUD}/Finance/Statements"
+    )
+    return os.path.join(os.path.expanduser(folder), "index.html")
+
+
 def build_report(
     db,
     output_path: Optional[str] = None,
@@ -6970,8 +6989,7 @@ def build_report(
 ) -> str:
     """Generate and write the index.html report to disk."""
     if not output_path:
-        default_dir = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements")
-        output_path = os.path.join(default_dir, "index.html")
+        output_path = resolve_report_path(cfg)
 
     data = collect_report_data(db, cfg=cfg, provider_filter=provider_filter)
     html_content = render_html_report(data)

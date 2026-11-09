@@ -1032,7 +1032,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_summary)
 
     s = sp.add_parser("report", help="generate an interactive, self-contained index.html dashboard", formatter_class=RD)
-    s.add_argument("-o", "--output", help="output HTML path (default: ~/iCloud/Finance/Statements/index.html)")
+    s.add_argument("-o", "--output", help="output HTML path (default: config.json report_path, or directories.reports/index.html)")
     s.add_argument("--provider", help="filter by provider (default: all providers)")
     s.add_argument("--open", dest="open_browser", action="store_true", help="open report in default web browser")
     s.set_defaults(fn=cmd_report)

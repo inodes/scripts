@@ -107,3 +107,6 @@ renovation ledger, ESS history, remittances, holdings defaults, vehicle purchase
 plus user-specific `category_rules` and provider scan directories, are read from
 `~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json`. Nothing in the repository contains
 real identifiers; fixtures use fabricated values. See `config.example.json` for the shape.
+
+**Report location:** the generated `index.html` is written to `directories.reports` in `config.json`
+(or an explicit `report_path`), falling back to `directories.statements`. Keep it inside iCloud.
