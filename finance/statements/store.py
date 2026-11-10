@@ -93,7 +93,20 @@ CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(tx_date, account_no);
 """
 
 
+def _in_icloud(path: str) -> bool:
+    real = os.path.realpath(os.path.expanduser(path))
+    return "/Library/Mobile Documents/" in real or "/com~apple~CloudDocs/" in real
+
+
 def connect(db_path: str) -> sqlite3.Connection:
+    # SQLite (especially WAL mode) can corrupt when iCloud syncs it mid-write.
+    # Keep the database in a local folder; only PDFs, config and HTML reports belong in iCloud.
+    if _in_icloud(db_path) and os.environ.get("PDF_AUDIT_ALLOW_ICLOUD_DB") != "1":
+        raise RuntimeError(
+            f"Refusing to open the database inside iCloud ({db_path}): sync can corrupt SQLite. "
+            "Set directories.data / data_dir in config.json to a local folder "
+            "(e.g. ~/Library/Application Support/pdf-audit), or set PDF_AUDIT_ALLOW_ICLOUD_DB=1 to override."
+        )
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     db = sqlite3.connect(db_path, timeout=60.0)
     db.row_factory = sqlite3.Row

@@ -110,3 +110,8 @@ real identifiers; fixtures use fabricated values. See `config.example.json` for 
 
 **Report location:** the generated `index.html` is written to `directories.reports` in `config.json`
 (or an explicit `report_path`), falling back to `directories.statements`. Keep it inside iCloud.
+
+**Database location:** the SQLite index is kept in a *local* folder (`data_dir`, default
+`~/Library/Application Support/pdf-audit`), never in iCloud, because sync can corrupt a live SQLite/WAL file.
+`store.connect` refuses an iCloud path unless `PDF_AUDIT_ALLOW_ICLOUD_DB=1`. Reports (HTML), PDFs and
+`config.json` live in iCloud; the database can be rebuilt at any time from the PDFs.
