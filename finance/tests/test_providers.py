@@ -39,6 +39,18 @@ class TestFinanceProviders(unittest.TestCase):
         aapt = next(p for p in AVAILABLE_PROVIDERS if p.name == "aapt")
         self.assertFalse(aapt.detect("Tax Invoice\nBill To: AAPT Ltd\nLevel 1 Example St\nTotal $10.00", "invoice.pdf"))
 
+    def test_payslip_name_qualifiers_are_kept(self):
+        wd = next(p for p in AVAILABLE_PROVIDERS if p.name == "workday")
+        data = {"period_end": "2020-01-15", "period_end_compact": "20200115"}
+        std = wd.generate_filename(dict(data), "/x/anything.pdf")
+        self.assertEqual(std, "Workday_Payslip_20200115.pdf")
+        for keep in ("Workday_Payslip_20200115_Bonus.pdf", "Workday_Payslip_20200115_01.pdf",
+                     "Workday_Payslip_20200115_Bonus_01.pdf", "Workday_Payslip_20200115_summary.pdf"):
+            self.assertEqual(wd.generate_filename(dict(data), "/x/" + keep), keep)
+        self.assertEqual(wd.generate_filename(dict(data, filename_variant="Bonus"), "/x/a.pdf"),
+                         "Workday_Payslip_20200115_Bonus.pdf")
+        self.assertEqual(wd.generate_filename(dict(data), "/x/Workday_Payslip_20200115_final.pdf"), std)
+
 
 if __name__ == "__main__":
     unittest.main()

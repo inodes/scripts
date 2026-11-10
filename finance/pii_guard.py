@@ -11,6 +11,7 @@ The denylist is derived at run time from the external config.json; nothing sensi
 Exit code 1 blocks the commit. Install as a hook:
     ./fix_exec_bits.sh --install-hook   (never symlink the hook to this file)
 """
+import datetime
 import json
 import os
 import re
@@ -24,6 +25,20 @@ sys.path.insert(0, HERE)
 ALLOWED_EMAILS = ("you@gmail.com", "noreply@anthropic.com", "example.com", "git@github.com")
 FAKE_NUMBERS = {"12345678", "87654321", "123456789", "00000000", "0000000000"}
 EXTRA_WORDS = os.path.join(os.path.dirname(HERE), ".pii_denylist.local")  # optional, gitignored words list
+
+
+def _is_date(n: str) -> bool:
+    """8 digits that form a real calendar date (YYYYMMDD or DDMMYYYY) are dates, not identifiers."""
+    if len(n) != 8:
+        return False
+    for fmt in ("%Y%m%d", "%d%m%Y"):
+        try:
+            d = datetime.datetime.strptime(n, fmt)
+            if 1990 <= d.year <= 2099:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 def _load_private_values():
@@ -79,7 +94,7 @@ def main(argv):
                 problems.append(f"{rel}: email address {m.group(0)}")
         for m in re.finditer(r"(?<![\d.$,-])\d{8,16}(?![\d.,])", text):
             n = m.group(0)
-            if n in FAKE_NUMBERS or re.fullmatch(r"(\d)\1+", n) or n.startswith(("2026", "2025", "0000")):
+            if n in FAKE_NUMBERS or re.fullmatch(r"(\d)\1+", n) or n.startswith("0000") or _is_date(n):
                 continue
             problems.append(f"{rel}: suspicious {len(n)}-digit number {n[:2]}…")
     if problems:

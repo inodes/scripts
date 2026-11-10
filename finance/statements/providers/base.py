@@ -363,11 +363,26 @@ class BasePDFProvider:
         self, data: Dict[str, Any], original_path: str, cfg: Optional[Dict[str, Any]] = None
     ) -> str:
         tmpl = self._resolve_filename_template(data, cfg)
+        name = None
         if tmpl:
-            rendered = self.render_filename_template(tmpl, data)
-            if rendered:
-                return rendered
-        return self.default_filename(data, original_path)
+            name = self.render_filename_template(tmpl, data)
+        if not name:
+            return self.default_filename(data, original_path)
+        stem, ext = os.path.splitext(name)
+        variant = data.get("filename_variant")  # e.g. "Bonus" for a bonus-only payslip
+        if variant and not stem.endswith("_" + variant):
+            stem = f"{stem}_{variant}"
+            name = stem + ext
+        # A file that already carries the standard stem plus a recognised qualifier keeps its name:
+        # <stem>[_Bonus|_Run<n>][_NN|_summary]. Qualifiers record facts the template cannot derive
+        # (a second pay run in the same period, a duplicate copy, a one-page summary).
+        current = os.path.basename(original_path or "")
+        base_stem = os.path.splitext(self.render_filename_template(tmpl, data) or "")[0]
+        if base_stem and re.fullmatch(
+            re.escape(base_stem) + r"(_Bonus|_Run\d+)?(_\d{2}|_summary)?" + re.escape(ext), current
+        ):
+            return current
+        return name
 
     def default_filename(self, data: Dict[str, Any], original_path: str) -> str:
         return os.path.basename(original_path)

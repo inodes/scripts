@@ -197,11 +197,15 @@ Superannuation Guarantee Example Super 000000000 894.00 4,508.25 17,877.38
             # "Tax $x", "Net $x") that appears *before* the per-period lines. Try the
             # per-period labels first and only fall back to the short labels, otherwise
             # we capture year-to-date totals instead of this pay's amounts.
+            # Bonus-only payslip (separate bonus run): gross equals the bonus line and there is no normal pay.
+            m_bonus = re.search(r"\bAB\s+ANNUAL BONUS\s+\$?\s*([\d,]+\.\d{2})", t, re.IGNORECASE)
             m_gross = re.search(r"TAXABLE GROSS EARNINGS\s+\$?\s*([\d,]+\.\d{2})", t, re.IGNORECASE)
             if not m_gross:
                 m_gross = re.search(r"Taxable Gross\s+\$?\s*([\d,]+\.\d{2})", t, re.IGNORECASE)
             if m_gross:
                 gross_pay = parse_clean_decimal(m_gross.group(1))
+                if m_bonus and parse_clean_decimal(m_bonus.group(1)) == gross_pay and gross_pay > Decimal("0.00"):
+                    data["filename_variant"] = "Bonus"
 
             # Tax: "TOTAL TAX DEDUCTED $ 1,673.00-" (per-period); fallback "Tax $ 1,205.00"
             m_tax = re.search(r"TOTAL TAX DEDUCTED\s+\$?\s*([\d,]+\.\d{2}-?)", t)
