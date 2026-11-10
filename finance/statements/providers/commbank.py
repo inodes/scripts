@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from ..money import D, cents, fmt
+from .. import paths
 from .base import BasePDFProvider, MONTHS, classify_transaction
 
 DATE_PREFIX_RE = re.compile(r"^(\d{1,2}\s+[A-Za-z]{3})\b\s*(.*)$")
@@ -46,14 +47,10 @@ class CommBankProvider(BasePDFProvider):
     cadence: str = "monthly"
     expected_period_days: int = 30
     max_gap_days: int = 3
-    target_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank"
-    )
-    duplicates_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank/Duplicates"
-    )
+    target_dir: Optional[str] = paths.statements("commbank")
+    duplicates_dir: Optional[str] = paths.statements("commbank", "Duplicates")
     scan_dirs: List[str] = [
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank"),
+        paths.statements("commbank"),
     ]
     source_domains: List[str] = ["commbank.com.au", "netbank.com.au"]
     filename_template: Optional[str] = "Statement_{account_no}_{period_end_compact}.pdf"

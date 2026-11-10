@@ -21,12 +21,12 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from statements import config, store  # noqa: E402
+from statements import config, paths, store  # noqa: E402
 from statements.pdf import PDFTextExtractor, get_where_froms  # noqa: E402
 
-DEFAULT_PROCESS_LOG = os.path.expanduser("~/Library/Logs/Hazel/process_pdf.log")
-DEFAULT_HAZEL_LOG = os.path.expanduser("~/Library/Logs/Hazel/Hazel.log")
-DEFAULT_PDF_DIR = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/PDF")
+DEFAULT_PROCESS_LOG = paths.under("logs", "process_pdf.log")
+DEFAULT_HAZEL_LOG = paths.under("logs", "Hazel.log")
+DEFAULT_PDF_DIR = paths.get("pdf")
 
 
 def table(rows: List[List[Any]], header: List[str], right=()):
@@ -199,7 +199,7 @@ def inspect_for_provider(
     display_name = "{provider_name.replace('_', ' ').title()}"
     doc_type = "{provider_name.lower()}"
     document_kind = "invoice"  # statement | invoice | receipt | payslip
-    target_dir = "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/{provider_name.title()}"
+    target_dir = paths.statements("{provider_name.title()}")  # never hard-code iCloud paths
     source_domains = {dom_list!r}
     filename_template = "{provider_name.upper()}_{{date_compact}}.pdf"
     cadence = "monthly"

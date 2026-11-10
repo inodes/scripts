@@ -38,7 +38,7 @@
 
 4. **Provider-Agnostic CLI Help (`-h`)**:
    - `-h` / `--help` on `pdf_audit.py`, `sync_statements.py`, and `audit_hazel_logs.py` must remain completely **provider-agnostic** (no hardcoded institution names, account types, or provider-specific examples in help strings).
-   - All provider-specific details (names, document kinds, source domains, filename templates, and target directories) are queried dynamically via `./pdf_audit.py providers` (or `--providers`) and `./sync_statements.py --providers`.
+   - All provider-specific details (names, document kinds, source domains, filename templates, and target directories) are queried dynamically via `finance/pdf_audit.py providers` (or `--providers`) and `finance/sync_statements.py --providers`.
 
 5. **Backups, Duplicate Handling & Non-Destructive Operations**:
    - **Never delete repo scripts.** To retire a script, move it to `archive/` and log why in `archive/archive_log.md`. Backups of untracked files (`config.json`) belong in `.bak_archive/`.
@@ -76,15 +76,11 @@ scripts/
 ├── .gitignore                 # Git ignore rules (excludes PII, PDFs, DBs, config.json, AGENTS.local.md)
 ├── requirements.txt           # Python dependencies (pypdf>=4.0)
 ├── fix_exec_bits.sh           # Ensures all *.py and *.sh files have u+x and installs pre-commit hook
-├── pdf_audit.py               # Root compatibility launcher shim -> finance/pdf_audit.py
-├── sync_statements.py         # Root compatibility launcher shim -> finance/sync_statements.py
-├── process_pdf.sh             # Root compatibility launcher shim -> finance/process_pdf.sh
-├── fetch_email_invoices.py    # Root compatibility launcher shim -> finance/fetch_email_invoices.py
-├── audit_hazel_logs.py        # Root compatibility launcher shim -> finance/audit_hazel_logs.py
-└── finance/                   # 📂 Finance & Statement Audit Toolkit
+├── process_pdf.sh             # Generic PDF dispatcher run by Hazel: offers each PDF to every <section>/pdf_handler.sh
+└── finance/                   # 📂 Finance & Statement Audit Toolkit (one section; others can be added alongside)
     ├── config.example.json        # Sanitized provider & directory configuration template (committed)
     ├── category_rules.example.json# Sanitized category rules template (committed)
-    ├── process_pdf.sh             # Generic Hazel / Folder Action entry script (--provider auto --import --delete-duplicates --hazel)
+    ├── pdf_handler.sh             # Finance handler for ../process_pdf.sh (--provider auto --import --delete-duplicates --hazel)
     ├── sync_statements.py         # Provider discovery, inspection, --rename, --import, --delete-duplicates, --where-from, --hazel
     ├── pdf_audit.py               # Full SQLite ledger CLI: providers, sync, scan, inspect, statements, statement, accounts, transactions, check, summary, report
     ├── fetch_email_invoices.py    # Automated IMAP invoice & statement email attachment downloader
@@ -158,17 +154,24 @@ Banks, utilities, and merchants periodically tweak or redesign their PDF templat
 
 ---
 
+## 3a. File Locations (mandatory)
+
+- **Never hard-code an iCloud (or any user) path.** Use `statements/paths.py`: `paths.get("pdf")`, `paths.statements("HSBC")`, `paths.payslips(...)`, `paths.under("reports", "index.html")`. All of them derive from `config.json` -> `directories`.
+- **Call `paths.check_destination(dest)` before any move or write.** It refuses loose files in container folders (iCloud root, Finance, Statements, Payslips, Shares), anything inside the repo, and databases in iCloud.
+- The SQLite index is local (`directories.data`); generated HTML goes to `directories.reports`; neither goes in a statements folder.
+- Each tool exists once. `process_pdf.sh` (repo root) is generic and section-agnostic: it must never contain finance- or provider-specific logic. Each section plugs in via `<section>/pdf_handler.sh` (exit `0` handled, `1` not mine, `2+` failure).
+- A provider match is not proof. Only rename/move a document that also yields a date and reconciles (`hold_reason()`); otherwise log `HOLD` and leave it in place.
+
 ## 4. Hazel Integration, Logging & Scaffolding New Providers
 
 ### 4.1 How Hazel Calls `process_pdf.sh`
-- Hazel rules (e.g. **"Provider PDF Processor"** on `~/iCloud/PDF`) run `process_pdf.sh` as a **"Run shell script" action** (not a "Passes shell script" condition), via the forwarder at `~/iCloud/hazel/scripts/process_pdf.sh`, which delegates to `~/repos/scripts/process_pdf.sh`.
-- `process_pdf.sh` runs:
+- Hazel rules (e.g. **"Provider PDF Processor"** on `~/iCloud/PDF`) run `process_pdf.sh` as a **"Run shell script" action** (not a "Passes shell script" condition), via the forwarder at `~/iCloud/hazel/scripts/process_pdf.sh`, which delegates to `~/repos/scripts/process_pdf.sh` (the only copy).
+- `process_pdf.sh` skips files that are not ready (missing, not a PDF, hidden/iCloud placeholder, empty, still being written, inside `Duplicates/`/`Archive/`), takes a lock so concurrent Hazel runs are serialised, then offers each file to every `<section>/pdf_handler.sh` until one claims it. The finance handler runs:
   ```bash
   sync_statements.py --provider auto --import --delete-duplicates --hazel "$1"
   ```
-- **Exit Codes & Rule Fall-Through**:
-  - **Exit `0`**: The PDF matched an enabled provider, passed cent-level reconciliation (`reconciled=True`), had its dates retouched (`SetFile` + `os.utime`), and was moved to `target_dir` (or deleted if a true binary duplicate, or moved to `<target_dir>/Duplicates/`).
-  - **Exit `1`** (internal): The PDF did not match any registered provider (or failed reconciliation). Because Hazel treats a non-zero exit from a "Run shell script" action as an error and halts the rule for that file, `process_pdf.sh` maps exit `1` to exit `0` (unmatched files are normal, not errors). Only exit codes `>= 2` (real failures) are propagated. If the rule is ever switched to a "Passes shell script" condition, this mapping must be revisited.
+- **Exit codes**: handlers return `0` handled, `1` not mine, `2+` failure. The dispatcher exits `0` when every file was handled or unclaimed (Hazel treats non-zero from a "Run shell script" action as an error), and `2+` on a real failure. `PROCESS_PDF_STRICT=1` makes it exit `1` when a file is unclaimed, for use as a "Passes shell script" condition.
+- **Hold gate**: a recognised document that has no extracted date or fails reconciliation is logged as `HOLD` and left in place.
 - **Structured Log Output (`~/Library/Logs/Hazel/process_pdf.log` & `stdout`)**:
   Every invocation writes a single-line structured log record to both `stdout` and `~/Library/Logs/Hazel/process_pdf.log`:
   - `MATCH`: `[process_pdf] MATCH status=imported provider=hsbc_premier file="statement-3.pdf" -> "HSBC_Premier_000000_20260617.pdf" dest="~/iCloud/Finance/Statements/HSBC/..." date=2026-06-17 reconciled=True`
@@ -176,23 +179,23 @@ Banks, utilities, and merchants periodically tweak or redesign their PDF templat
   - `DRIFT`: `[process_pdf] DRIFT status=unmatched_format_drift file="statement.pdf" path="..." source_domain="hsbc.com.au" expected_provider="hsbc_premier" reason=domain_matched_but_content_format_changed`
 
 ### 4.2 Auditing Unmatched PDFs & Scaffolding Providers (`audit_hazel_logs.py`)
-Use `./audit_hazel_logs.py` to review Hazel processing activity, spot format drift on existing providers, and scaffold new providers or new format versions:
+Use `finance/audit_hazel_logs.py` to review Hazel processing activity, spot format drift on existing providers, and scaffold new providers or new format versions:
 
 ```bash
 # 1. View summary of matched PDFs, unmatched PDFs grouped by domain/pattern, and Hazel errors
-./audit_hazel_logs.py
+finance/audit_hazel_logs.py
 
 # 2. Also scan an inbox folder directly for any PDFs not yet logged by Hazel
-./audit_hazel_logs.py --scan-unmatched ~/iCloud/PDF
+finance/audit_hazel_logs.py --scan-unmatched ~/iCloud/PDF
 
 # 3. Inspect a specific unmatched PDF (extracts WhereFroms domain, dates, amounts, and first 25 lines)
-./audit_hazel_logs.py --sample "JBHiFi-Receipt"
+finance/audit_hazel_logs.py --sample "JBHiFi-Receipt"
 
 # 4. Generate a ready-to-paste multi-version BasePDFProvider class (auto-infers version e.g. v2021)
-./audit_hazel_logs.py --sample "JBHiFi-Receipt" --scaffold jbhifi
+finance/audit_hazel_logs.py --sample "JBHiFi-Receipt" --scaffold jbhifi
 
 # 5. Or specify an explicit format version tag when adding a new era to an existing/new provider
-./audit_hazel_logs.py --sample "statement.pdf" --scaffold hsbc_premier --version v2027_redesign
+finance/audit_hazel_logs.py --sample "statement.pdf" --scaffold hsbc_premier --version v2027_redesign
 ```
 
 ---

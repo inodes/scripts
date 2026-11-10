@@ -29,8 +29,9 @@ def load_custom_category_rules() -> Dict[str, str]:
         cfg_file = get_cfg_path()
         rules_file = get_category_rules_path()
     except Exception:
-        cfg_file = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json")
-        rules_file = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/category_rules.json")
+        from .. import paths as _paths
+        cfg_file = _paths.config_path()
+        rules_file = _paths.under("finance", "category_rules.json")
 
     mtimes: Dict[str, float] = {}
     if cfg_file and os.path.isfile(cfg_file):

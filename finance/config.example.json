@@ -1,19 +1,16 @@
 {
   "directories": {
+    "icloud": "~/Library/Mobile Documents/com~apple~CloudDocs",
+    "finance": "{icloud}/Finance",
+    "statements": "{finance}/Statements",
+    "payslips": "{finance}/Payslips",
+    "shares": "{finance}/Shares",
+    "reports": "{finance}/Reports",
+    "pdf": "{icloud}/PDF",
     "landing": "~/Downloads",
-    "finance": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance",
-    "statements": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements",
-    "pdf": "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
     "data": "~/Library/Application Support/pdf-audit",
-    "reports": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Reports"
+    "logs": "~/Library/Logs/Hazel"
   },
-  "scan_dirs": [
-    "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC",
-    "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank",
-    "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING",
-    "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
-    "~/Downloads"
-  ],
   "skip_dirs": [
     "old",
     "Archive",
@@ -24,18 +21,15 @@
   "providers": {
     "hsbc": {
       "enabled": true,
-      "display_name": "HSBC Australia",
-      "target_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC"
+      "display_name": "HSBC Australia"
     },
     "commbank": {
       "enabled": true,
-      "display_name": "Commonwealth Bank",
-      "target_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/commbank"
+      "display_name": "Commonwealth Bank"
     },
     "ing": {
       "enabled": true,
-      "display_name": "ING Australia",
-      "target_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING"
+      "display_name": "ING Australia"
     }
   },
   "category_rules": {
@@ -81,5 +75,6 @@
     ],
     "departure_date": "",
     "forfeited_shares": 0
-  }
+  },
+  "_comment": "Copy to your iCloud Finance folder as config.json. Every location derives from 'directories'; provider folders default to {statements}/<Provider>. Override a provider's target_dir/scan_dirs only if you need something different."
 }

@@ -10,8 +10,9 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from statements import config, store  # noqa: E402
+from statements import config, paths, store  # noqa: E402
 from statements.ingest import (  # noqa: E402
+    hold_reason,
     matches_provider_filter,
     non_clobbering_path,
     same_pdf_content,
@@ -327,7 +328,10 @@ def cmd_scan(ctx, args):
         target_dir = data.get("target_dir") or os.path.dirname(p)
         action_status = "unchanged"
 
-        if args.rename or args.do_import:
+        held = hold_reason(data) if (args.rename or args.do_import) else None
+        if held:
+            action_status = f"HOLD ({held}): left in place"
+        if (args.rename or args.do_import) and not held:
             dest_dir = target_dir if args.do_import else os.path.dirname(p)
             candidate = os.path.join(dest_dir, target_fname)
             if os.path.abspath(p) != os.path.abspath(candidate):
@@ -348,6 +352,7 @@ def cmd_scan(ctx, args):
                         + f" -> {os.path.basename(free_dest)}"
                     )
                     if not args.dry_run:
+                        paths.check_destination(free_dest)
                         os.makedirs(os.path.dirname(free_dest), exist_ok=True)
                         shutil.move(p, free_dest)
                         set_mtime_from_metadata(free_dest, data)

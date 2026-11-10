@@ -1,6 +1,6 @@
 # Personal Automation & Tooling Suite (`~/repos/scripts`)
 
-A modular repository for local automations and tools. All financial statements, invoices, and accounting tools are organized in the [`finance/`](finance/) subdirectory, complete with root compatibility forwarders so existing scripts, shell aliases, and Hazel rules continue without interruption.
+A modular repository for local automations and tools. All financial statements, invoices, and accounting tools are organized in the [`finance/`](finance/) subdirectory, with a single copy of each tool (no root-level duplicates). With direnv, `finance/` is on `PATH` inside the repo.
 
 > **For AI Agents & Contributors**: Read [`AGENTS.md`](AGENTS.md) first for the complete architecture reference, multi-version provider design rules, zero-PII requirements, and verification checklist.
 
@@ -8,18 +8,18 @@ A modular repository for local automations and tools. All financial statements, 
 
 ## Finance Suite (`finance/`)
 
-1. **[`finance/pdf_audit.py`](finance/pdf_audit.py) (or `./pdf_audit.py`) — Full SQLite Statement & Transaction Ledger CLI**:
+1. **[`finance/pdf_audit.py`](finance/pdf_audit.py) (or `finance/pdf_audit.py`) — Full SQLite Statement & Transaction Ledger CLI**:
    - Ingests statements, account sections, and transactions into SQLite (`~/Library/Application Support/pdf-audit/pdf_audit.db`).
    - Supports `providers`, `sync`, `scan`, `inspect`, `statements`, `statement`, `accounts`, `transactions`, `check` (timeline gap detection), `summary`, `fetch-email`, and `report` (interactive HTML dashboard).
 
-2. **[`finance/sync_statements.py`](finance/sync_statements.py) (or `./sync_statements.py`) — Discovery, Date-Retouching, Rename & Filing**:
+2. **[`finance/sync_statements.py`](finance/sync_statements.py) (or `finance/sync_statements.py`) — Discovery, Date-Retouching, Rename & Filing**:
    - Discovers statements, detects the matching provider and format version, verifies cent-level balance reconciliation, and moves/renames documents into provider target folders.
    - Retouches `mtime`, `atime`, and Finder creation date (`SetFile -d`) to `00:00:00` on the statement's ending date.
    - Content-aware duplicate deletion (`--delete-duplicates`) via `normalized_pdf_sha256()`.
 
-3. **[`finance/process_pdf.sh`](finance/process_pdf.sh) (or `./process_pdf.sh`) — Generic Hazel & Folder Action Entry Script**:
-   - Invokes `sync_statements.py --provider auto --import --delete-duplicates --hazel "$1"`.
-   - Structured logging to `~/Library/Logs/Hazel/process_pdf.log`. Exits `0` on match and also on unmatched files (internal status 1 is mapped to 0 because Hazel runs it as a "Run shell script" action and treats non-zero as an error); only real failures (`>= 2`) are propagated.
+3. **[`process_pdf.sh`](process_pdf.sh) — Generic PDF dispatcher (run by Hazel)**:
+   - Not finance-specific. Offers each ready PDF to every `<section>/pdf_handler.sh` until one claims it (`0` handled, `1` not mine, `2+` failure). Finance plugs in via [`finance/pdf_handler.sh`](finance/pdf_handler.sh); add another section by adding its own handler.
+   - Skips files that are not ready, serialises concurrent runs, logs to `~/Library/Logs/Hazel/process_pdf.log` (rotated at 5 MB). Exits `0` for handled or unclaimed files; only real failures (`>= 2`) are propagated.
 
 4. **[`finance/fetch_email_invoices.py`](finance/fetch_email_invoices.py) — Email Invoice & Statement Extraction**:
    - Securely searches IMAP (Gmail / Google Workspace) using provider query presets (Apple, Qantas, Tesla, CommBank, HSBC, ING, etc.), extracts PDF attachments, and stages them for Hazel/auditing.
@@ -33,27 +33,27 @@ A modular repository for local automations and tools. All financial statements, 
 
 ```bash
 # 1. List all registered providers, document kinds, source domains, templates, and target folders
-./pdf_audit.py providers
-./sync_statements.py --providers
+finance/pdf_audit.py providers
+finance/sync_statements.py --providers
 
 # 2. Preview standardized names and import actions for a folder (dry-run)
-./sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --dry-run
+finance/sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --dry-run
 
 # 3. Import matched PDFs into their provider target_dir and delete true binary duplicates
-./sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --delete-duplicates
+finance/sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --delete-duplicates
 
 # 4. Audit Hazel logs for unmatched PDFs or format drift, and scaffold a new provider
-./audit_hazel_logs.py
-./audit_hazel_logs.py --sample "Receipt-Sample.pdf" --scaffold my_provider
+finance/audit_hazel_logs.py
+finance/audit_hazel_logs.py --sample "Receipt-Sample.pdf" --scaffold my_provider
 
 # 5. Sync statements into SQLite and check arithmetic + timeline continuity (missing statement gaps)
-./pdf_audit.py sync
-./pdf_audit.py check
+finance/pdf_audit.py sync
+finance/pdf_audit.py check
 
 # 6. View accounts summary, category spend summary, or search/export transactions
-./pdf_audit.py accounts
-./pdf_audit.py summary --by category --from 2025-11-01 --exclude-transfers
-./pdf_audit.py transactions --category Groceries --limit 25
+finance/pdf_audit.py accounts
+finance/pdf_audit.py summary --by category --from 2025-11-01 --exclude-transfers
+finance/pdf_audit.py transactions --category Groceries --limit 25
 ```
 
 ---
@@ -65,7 +65,7 @@ Issuers frequently tweak or redesign their PDF templates over time (for example,
 - **`format_versions`**: Lists all supported layout versions (e.g. `["v2019_classic", "v2025_dual_ccy"]`).
 - **`detect_version(text, pdf_path)`**: Returns which version tag a PDF matches (or `None`), allowing `extract()` to apply version-specific regexes while normalizing into the same filename template and target directory.
 - **`sample_variants`**: Stores synthetic, PII-free text fixtures for **every** version in `format_versions`. Calling `provider.run_self_test()` automatically tests every historical version so adding a new 2026/2027 layout never breaks older 2019/2021 PDFs.
-- **Format Drift Detection (`DRIFT`)**: When a PDF's download domain (`kMDItemWhereFroms`) matches a provider's `source_domains`, but `detect()` fails because the issuer redesigned their PDF, `process_pdf.sh` logs a `DRIFT` entry to `~/Library/Logs/Hazel/process_pdf.log` so `./audit_hazel_logs.py` immediately highlights which existing provider needs a new format version.
+- **Format Drift Detection (`DRIFT`)**: When a PDF's download domain (`kMDItemWhereFroms`) matches a provider's `source_domains`, but `detect()` fails because the issuer redesigned their PDF, `process_pdf.sh` logs a `DRIFT` entry to `~/Library/Logs/Hazel/process_pdf.log` so `finance/audit_hazel_logs.py` immediately highlights which existing provider needs a new format version.
 
 ---
 
@@ -87,5 +87,5 @@ direnv allow .
 PDF_AUDIT_CONFIG=config.example.json python3 -c "from statements import config; from statements.providers import AVAILABLE_PROVIDERS; cfg = config.load(); assert all(p.run_self_test(cfg)['ok'] for p in AVAILABLE_PROVIDERS if p.name != 'generic')"
 
 # 3. Check missing statement periods using the provider's cadence & balance continuity rules
-./pdf_audit.py check --missing-only
+finance/pdf_audit.py check --missing-only
 ```

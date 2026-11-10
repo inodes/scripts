@@ -65,7 +65,10 @@ TARGET_PRESETS: Dict[str, Dict[str, Any]] = {
 }
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/pdf-audit/email.json")
-DEFAULT_TARGET_DIR = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/PDF")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from statements import paths  # noqa: E402
+
+DEFAULT_TARGET_DIR = paths.get("pdf")
 
 
 def decode_str(header_val: Any) -> str:
@@ -97,7 +100,7 @@ def sanitize_filename(name: str) -> str:
 
 def load_known_shas() -> Set[str]:
     """Load known file SHA-256 hashes from the pdf_audit SQLite database if available."""
-    db_path = os.path.expanduser("~/Library/Application Support/pdf-audit/pdf_audit.db")
+    db_path = paths.under("data", "pdf_audit.db")
     if not os.path.exists(db_path):
         return set()
     try:
@@ -304,6 +307,7 @@ def fetch_invoices_for_preset(
                 downloaded += 1
                 downloaded_files.append(dest_path)
             else:
+                paths.check_destination(dest_path)
                 os.makedirs(target_dir, exist_ok=True)
                 with open(dest_path, "wb") as out_f:
                     out_f.write(payload)

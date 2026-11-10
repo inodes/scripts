@@ -3,10 +3,11 @@ import json
 import os
 from typing import Any, Dict, Optional
 
+from . import paths
 from .providers import AVAILABLE_PROVIDERS
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ICLOUD = "~/Library/Mobile Documents/com~apple~CloudDocs"
+ICLOUD = paths.ICLOUD
 
 
 def build_defaults() -> Dict[str, Any]:
@@ -26,14 +27,10 @@ def build_defaults() -> Dict[str, Any]:
                 scan_dirs.append(sd)
 
     if not scan_dirs:
-        scan_dirs = [
-            ICLOUD + "/Finance/Statements/HSBC",
-            ICLOUD + "/PDF",
-            "~/Downloads",
-        ]
+        scan_dirs = [paths.get("pdf"), paths.get("landing")]
 
     return {
-        "data_dir": "~/Library/Application Support/pdf-audit",
+        "data_dir": paths.get("data"),
         "scan_dirs": scan_dirs,
         "providers": providers_cfg,
         "target_dirs": target_dirs,
@@ -49,15 +46,7 @@ def path() -> str:
     3. HERE/config.json (local repo config fallback, git-ignored)
     4. Defaults to ~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json
     """
-    if os.environ.get("PDF_AUDIT_CONFIG"):
-        return os.path.abspath(os.path.expanduser(os.environ["PDF_AUDIT_CONFIG"]))
-    icloud_cfg = os.path.expanduser(f"{ICLOUD}/Finance/config.json")
-    if os.path.isfile(icloud_cfg):
-        return icloud_cfg
-    repo_cfg = os.path.join(HERE, "config.json")
-    if os.path.isfile(repo_cfg):
-        return repo_cfg
-    return icloud_cfg
+    return paths.config_path()
 
 
 def get_category_rules_path() -> Optional[str]:
@@ -66,7 +55,7 @@ def get_category_rules_path() -> Optional[str]:
         p = os.path.abspath(os.path.expanduser(os.environ["CATEGORY_RULES_PATH"]))
         if os.path.isfile(p):
             return p
-    icloud_rules = os.path.expanduser(f"{ICLOUD}/Finance/category_rules.json")
+    icloud_rules = paths.under("finance", "category_rules.json")
     if os.path.isfile(icloud_rules):
         return icloud_rules
     repo_rules = os.path.join(HERE, "category_rules.json")
@@ -97,8 +86,8 @@ def load() -> Dict[str, Any]:
             for pk, pv in providers_cfg.items():
                 if isinstance(pv, dict):
                     cfg["providers"].setdefault(pk, {}).update(pv)
-        if isinstance(directories, dict):
-            cfg["directories"] = {k: os.path.expanduser(v) for k, v in directories.items() if v}
+        if isinstance(directories, dict) and directories.get("data") and "data_dir" not in user_cfg:
+            cfg["data_dir"] = paths.get("data")
         if isinstance(category_rules, dict):
             cfg["category_rules"] = dict(category_rules)
 
@@ -123,6 +112,7 @@ def load() -> Dict[str, Any]:
     cfg["scan_dirs"] = [os.path.expanduser(x) for x in cfg.get("scan_dirs", [])]
     cfg["target_dirs"] = {k: os.path.expanduser(v) for k, v in cfg.get("target_dirs", {}).items()}
     cfg["data_dir"] = os.path.expanduser(cfg["data_dir"])
+    cfg["directories"] = dict(paths.directories())
     cfg["db"] = os.path.join(cfg["data_dir"], "pdf_audit.db")
     return cfg
 
@@ -141,10 +131,4 @@ def provider_config(cfg: Dict[str, Any], provider_name: str) -> Dict[str, Any]:
 
 def show_path(p: str) -> str:
     """Render path compactly using ~/iCloud or ~."""
-    if not p:
-        return "-"
-    home = os.path.expanduser("~")
-    icloud = os.path.expanduser(ICLOUD)
-    if p.startswith(icloud):
-        return "~/iCloud" + p[len(icloud):]
-    return "~" + p[len(home):] if p.startswith(home) else p
+    return paths.show(p)

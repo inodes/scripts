@@ -12,7 +12,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from . import config, store
+from . import config, paths, store
 from .money import D, cents, fmt
 from .providers import check_missing_periods_by_provider
 
@@ -598,7 +598,7 @@ def collect_report_data(db, cfg: Optional[Dict[str, Any]] = None, provider_filte
 
 def collect_shares_data() -> Dict[str, Any]:
     """Collect employer (TEAM) equity, ESS statutory history, and Shareworks holdings."""
-    base_dir = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Shares/TEAM")
+    base_dir = os.path.expanduser(_personal().get("shares_dir") or paths.under("shares", "TEAM"))
     tx_dir = os.path.join(base_dir, "Transactions")
 
     # 1. RSU Releases map for FMV / cost basis lookup
@@ -6963,22 +6963,16 @@ def render_html_report(data: Dict[str, Any]) -> str:
 
 
 def resolve_report_path(cfg: Optional[Dict[str, Any]] = None) -> str:
-    """Where the HTML report is written. Configurable in config.json (all optional):
+    """Where the HTML report is written. Set in config.json (both optional):
 
     1. "report_path": full path of the HTML file
-    2. "directories" -> "reports": folder, file is index.html
-    3. "directories" -> "statements": folder, file is index.html
-    4. iCloud Finance/Statements/index.html
+    2. "directories" -> "reports": folder (default {finance}/Reports); the file is index.html
     """
     cfg = cfg if cfg is not None else config.load()
     explicit = cfg.get("report_path")
     if explicit:
         return os.path.abspath(os.path.expanduser(explicit))
-    dirs = cfg.get("directories") or {}
-    folder = dirs.get("reports") or dirs.get("statements") or os.path.expanduser(
-        f"{config.ICLOUD}/Finance/Statements"
-    )
-    return os.path.join(os.path.expanduser(folder), "index.html")
+    return paths.under("reports", "index.html")
 
 
 def build_report(
@@ -6990,12 +6984,16 @@ def build_report(
     """Generate and write the index.html report to disk."""
     if not output_path:
         output_path = resolve_report_path(cfg)
+    output_path = paths.check_destination(output_path, kind="report")
 
     data = collect_report_data(db, cfg=cfg, provider_filter=provider_filter)
     html_content = render_html_report(data)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
+    # Write atomically so iCloud never syncs (and a browser never loads) a half-written report.
+    tmp_path = output_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         f.write(html_content)
+    os.replace(tmp_path, output_path)
 
     return output_path

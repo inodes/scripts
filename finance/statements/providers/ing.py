@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from ..money import D, cents, fmt
+from .. import paths
 from .base import BasePDFProvider, MONTHS, classify_transaction
 
 DATE_RE = re.compile(r"^(\d{2}/\d{2}/\d{4})\b\s*(.*)$")
@@ -28,14 +29,10 @@ class INGProvider(BasePDFProvider):
     cadence: str = "quarterly"
     expected_period_days: int = 91
     max_gap_days: int = 2
-    target_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING"
-    )
-    duplicates_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING/Duplicates"
-    )
+    target_dir: Optional[str] = paths.statements("ING")
+    duplicates_dir: Optional[str] = paths.statements("ING", "Duplicates")
     scan_dirs: List[str] = [
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/ING"),
+        paths.statements("ING"),
     ]
     source_domains: List[str] = ["ing.com.au", "campaigns.ing.com.au"]
     filename_template: Optional[str] = "ING_Statement_{bsb}-{account_no}_{statement_no}_{period_end}00000000.pdf"

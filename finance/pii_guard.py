@@ -9,7 +9,7 @@ Scans files that are about to be committed (staged, or all non-ignored with --al
 
 The denylist is derived at run time from the external config.json; nothing sensitive is stored here.
 Exit code 1 blocks the commit. Install as a hook:
-    ln -sf ../../finance/pii_guard.py .git/hooks/pre-commit
+    ./fix_exec_bits.sh --install-hook   (never symlink the hook to this file)
 """
 import json
 import os

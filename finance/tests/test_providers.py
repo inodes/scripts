@@ -29,6 +29,16 @@ class TestFinanceProviders(unittest.TestCase):
             self.assertEqual(classify_transaction("COLES SUPERMARKET"), "Groceries")
             self.assertEqual(classify_transaction("BP SERVICE STATION"), "Auto & Transport")
 
+    def test_unverified_documents_are_held(self):
+        from statements.ingest import hold_reason
+        self.assertEqual(hold_reason({"reconciled": True}), "no_document_date")
+        self.assertEqual(hold_reason({"period_end": "2026-01-31", "reconciled": False}), "not_reconciled")
+        self.assertIsNone(hold_reason({"period_end": "2026-01-31", "reconciled": True}))
+
+    def test_employer_name_alone_is_not_a_payslip(self):
+        aapt = next(p for p in AVAILABLE_PROVIDERS if p.name == "aapt")
+        self.assertFalse(aapt.detect("Tax Invoice\nBill To: AAPT Ltd\nLevel 1 Example St\nTotal $10.00", "invoice.pdf"))
+
 
 if __name__ == "__main__":
     unittest.main()

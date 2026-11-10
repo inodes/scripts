@@ -38,9 +38,12 @@ import shutil
 import sys
 from typing import Any, Dict, List, Optional
 
+# Set by --allow-unreconciled: permit rename/import of documents that fail the date/reconciliation gate.
+ALLOW_UNVERIFIED = False
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from statements import config, store  # noqa: E402
+from statements import config, paths, store  # noqa: E402
 from statements.ingest import (  # noqa: E402
     is_true_binary_duplicate,
     matches_provider_filter,
@@ -242,6 +245,7 @@ def handle_duplicate_file(
         dup_dest = unique_path_in_dir(duplicates_dir, dup_fname)
         dup_display = f"{config.show_path(duplicates_dir)}/{os.path.basename(dup_dest)}"
         if not dry_run:
+            paths.check_destination(dup_dest)
             os.makedirs(duplicates_dir, exist_ok=True)
             src_txt = os.path.splitext(src_path)[0] + ".txt"
             dup_txt = os.path.splitext(dup_dest)[0] + ".txt"
@@ -380,6 +384,26 @@ def run_batch(
         if meta_url:
             data["matched_source_url"] = meta_url
 
+        # Safety gate: never rename or move a document we could not date or reconcile.
+        # A provider "match" on its own is not proof (e.g. an invoice that merely mentions a provider's name).
+        hold = None
+        if (do_import or do_rename) and not ALLOW_UNVERIFIED:
+            if not (data.get("period_end") or data.get("issue_date")):
+                hold = "no_document_date"
+            elif not data.get("reconciled"):
+                hold = "not_reconciled"
+        if hold:
+            skipped_unrecognised += 1
+            msg = (
+                f"[process_pdf] HOLD file={os.path.basename(p)} provider={data.get('doc_type')} reason={hold} "
+                f"action=\"left in place; inspect, then re-run with --allow-unreconciled if it is genuine\""
+            )
+            if hazel_log:
+                hazel_lines.append(msg)
+            else:
+                print(msg, file=sys.stderr)
+            continue
+
         orig_name = os.path.basename(p)
         dest_dir = target_dir if do_import else os.path.dirname(p)
         candidate = os.path.join(dest_dir, target_fname)
@@ -431,6 +455,7 @@ def run_batch(
                     seen_targets[alt_dest] = p
                     action_status = f"{'dry-run ' if dry_run else ''}{'move' if do_import else 'rename'} -> {os.path.basename(alt_dest)}"
                     if not dry_run and (do_rename or do_import):
+                        paths.check_destination(alt_dest)
                         os.makedirs(os.path.dirname(alt_dest), exist_ok=True)
                         src_txt = os.path.splitext(p)[0] + ".txt"
                         alt_txt = os.path.splitext(alt_dest)[0] + ".txt"
@@ -458,6 +483,7 @@ def run_batch(
                 )
                 action_status = f"{prefix}{verb} -> {dest_display}"
                 if not dry_run and (do_rename or do_import):
+                    paths.check_destination(free_dest)
                     os.makedirs(os.path.dirname(free_dest), exist_ok=True)
                     src_txt = os.path.splitext(p)[0] + ".txt"
                     dest_txt = os.path.splitext(free_dest)[0] + ".txt"
@@ -628,11 +654,18 @@ def main(argv=None) -> int:
         help="emit compact single-line structured log output suitable for Hazel.log",
     )
     p.add_argument("--dry-run", action="store_true", default=None, help="preview rename/import without changing disk")
+    p.add_argument(
+        "--allow-unreconciled",
+        action="store_true",
+        help="rename/import even when a document has no extracted date or fails reconciliation (manual use only)",
+    )
     p.add_argument("--recursive", "-r", action="store_true", help="scan subdirectories recursively")
     p.add_argument("--json", action="store_true", help="output structured JSON")
     p.add_argument("--data-dir", help="override SQLite database directory")
 
     args = p.parse_args(argv)
+    global ALLOW_UNVERIFIED
+    ALLOW_UNVERIFIED = bool(args.allow_unreconciled)
     cfg = config.load()
     if args.data_dir:
         cfg["data_dir"] = os.path.expanduser(args.data_dir)

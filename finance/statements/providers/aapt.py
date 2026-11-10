@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from decimal import Decimal
 
 from ..money import D, cents, fmt
+from .. import paths
 from .base import BasePDFProvider, classify_transaction
 
 DATE_DMY_RE = re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$")
@@ -64,14 +65,10 @@ class AAPTProvider(BasePDFProvider):
     cadence: str = "monthly"
     expected_period_days: int = 30
     max_gap_days: int = 4
-    target_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/AAPT"
-    )
-    duplicates_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/AAPT/Duplicates"
-    )
+    target_dir: Optional[str] = paths.statements("AAPT")
+    duplicates_dir: Optional[str] = paths.statements("AAPT", "Duplicates")
     scan_dirs: List[str] = [
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Payslips/AAPT"),
+        paths.payslips("AAPT"),
     ]
     source_domains: List[str] = ["aapt.com.au"]
     filename_template: Optional[str] = "AAPT_Payslip_{period_end_compact}.pdf"
@@ -105,7 +102,8 @@ ABN 00000000000
         fn = os.path.basename(pdf_path or "")
         if fn == "leave.pdf":
             return None
-        if "AAPT" in t or ("Pay Location: New South Wales" in t and "Staff Number" in t):
+        # The employer name alone is not enough (invoices addressed to the company also contain it).
+        if "Staff Number" in t and "Pay Period" in t and ("AAPT" in t or "Pay Location" in t):
             return "v2012_aapt"
         return None
 

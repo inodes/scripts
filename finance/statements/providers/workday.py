@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from decimal import Decimal
 
 from ..money import D, cents, fmt
+from .. import paths
 from .base import BasePDFProvider, MONTHS, classify_transaction
 
 DATE_DMY_RE = re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$")
@@ -66,17 +67,13 @@ class WorkdayProvider(BasePDFProvider):
     cadence: str = "semi_monthly"
     expected_period_days: int = 15
     max_gap_days: int = 2
-    target_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/Workday"
-    )
-    duplicates_dir: Optional[str] = os.path.expanduser(
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/Workday/Duplicates"
-    )
+    target_dir: Optional[str] = paths.statements("Workday")
+    duplicates_dir: Optional[str] = paths.statements("Workday", "Duplicates")
     scan_dirs: List[str] = [
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/Workday"),
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/PDF/Workday"),
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Payslips/Workday"),
-        os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/PDF"),
+        paths.statements("Workday"),
+        paths.under("pdf", "Workday"),
+        paths.payslips("Workday"),
+        paths.get("pdf"),
     ]
     source_domains: List[str] = ["workday.com"]
     filename_template: Optional[str] = "Workday_Payslip_{period_end_compact}.pdf"

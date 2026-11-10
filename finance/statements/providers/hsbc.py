@@ -20,6 +20,7 @@ from itertools import combinations, product
 from typing import Any, Dict, List, Optional
 
 from ..money import D, cents
+from .. import paths
 from .base import BasePDFProvider, MONTHS, classify_transaction
 
 DATE_PREFIX_RE = re.compile(
@@ -488,11 +489,11 @@ class HSBCCreditCardProvider(BasePDFProvider):
     name = "hsbc_credit_card"
     display_name = "HSBC Credit Card"
     doc_type = "hsbc_credit_card"
-    target_dir = "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC"
+    target_dir = paths.statements("HSBC")
     scan_dirs = [
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC",
-        "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
-        "~/Downloads",
+        paths.statements("HSBC"),
+        paths.get("pdf"),
+        paths.get("landing"),
     ]
     source_domains = [
         "hsbc.com.au",
@@ -696,11 +697,11 @@ class HSBCPremierProvider(BasePDFProvider):
     name = "hsbc_premier"
     display_name = "HSBC Premier Portfolio"
     doc_type = "hsbc_premier"
-    target_dir = "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC"
+    target_dir = paths.statements("HSBC")
     scan_dirs = [
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC",
-        "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
-        "~/Downloads",
+        paths.statements("HSBC"),
+        paths.get("pdf"),
+        paths.get("landing"),
     ]
     source_domains = [
         "hsbc.com.au",
@@ -842,11 +843,11 @@ class HSBCSimpleProvider(BasePDFProvider):
     name = "hsbc_simple"
     display_name = "HSBC Simple Statement"
     doc_type = "hsbc_simple"
-    target_dir = "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC"
+    target_dir = paths.statements("HSBC")
     scan_dirs = [
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC",
-        "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
-        "~/Downloads",
+        paths.statements("HSBC"),
+        paths.get("pdf"),
+        paths.get("landing"),
     ]
     source_domains = [
         "hsbc.com.au",
@@ -953,11 +954,11 @@ class HSBCRouterProvider(BasePDFProvider):
     name = "hsbc"
     display_name = "HSBC Australia (All Statement Types)"
     doc_type = "hsbc"
-    target_dir = "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC"
+    target_dir = paths.statements("HSBC")
     scan_dirs = [
-        "~/Library/Mobile Documents/com~apple~CloudDocs/Finance/Statements/HSBC",
-        "~/Library/Mobile Documents/com~apple~CloudDocs/PDF",
-        "~/Downloads",
+        paths.statements("HSBC"),
+        paths.get("pdf"),
+        paths.get("landing"),
     ]
     source_domains = [
         "hsbc.com.au",

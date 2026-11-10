@@ -3,7 +3,7 @@
 # touching anything else. Skips virtualenvs and caches. Safe to run any time.
 #   ./fix_exec_bits.sh                 # fix and list what changed
 #   ./fix_exec_bits.sh --check         # list only, exit 1 if any are missing u+x
-#   ./fix_exec_bits.sh --install-hook  # (re)create .git/hooks/pre-commit (hooks are not versioned)
+#   ./fix_exec_bits.sh --install-hook  # (re)create .git/hooks/pre-commit: exec bits + PII guard (hooks are not versioned)
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
@@ -33,16 +33,19 @@ EOF
   exit 0
 fi
 if [ "${1:-}" = "--install-hook" ]; then
+  # Remove first: if the hook is a symlink, writing through it would overwrite its target.
+  rm -f "$ROOT/.git/hooks/pre-commit"
   cat > "$ROOT/.git/hooks/pre-commit" <<'HOOK'
 #!/bin/bash
-# Every staged .py/.sh must be user-executable, and git must record that.
+# 1. Every staged .py/.sh must be user-executable, and git must record that.
+# 2. Nothing staged may contain personal data (finance/pii_guard.py blocks the commit).
 root="$(git rev-parse --show-toplevel)"
 git diff --cached --name-only --diff-filter=AM -- '*.py' '*.sh' | while IFS= read -r f; do
   [ -f "$root/$f" ] || continue
   chmod u+x "$root/$f"
   git update-index --chmod=+x -- "$f"
 done
-exit 0
+exec python3 "$root/finance/pii_guard.py"
 HOOK
   chmod u+x "$ROOT/.git/hooks/pre-commit" && echo "installed .git/hooks/pre-commit"
   exit 0

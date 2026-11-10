@@ -10,7 +10,7 @@ import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
-from . import store
+from . import paths, store
 from .pdf import PDFTextExtractor, file_sha256, normalized_pdf_sha256
 from .providers import detect_and_extract, detect_provider
 
@@ -38,6 +38,21 @@ class Progress:
             sys.stderr.write("\r\033[K")
             sys.stderr.flush()
 
+
+
+def hold_reason(data: Dict[str, Any]) -> Optional[str]:
+    """Why a recognised document must NOT be renamed or moved (None = safe to file).
+
+    A provider match alone is not proof: the document must also yield a date and reconcile.
+    Override for manual runs with PDF_AUDIT_ALLOW_UNRECONCILED=1.
+    """
+    if os.environ.get("PDF_AUDIT_ALLOW_UNRECONCILED") == "1":
+        return None
+    if not (data.get("period_end") or data.get("issue_date")):
+        return "no_document_date"
+    if not data.get("reconciled"):
+        return "not_reconciled"
+    return None
 
 def walk_pdfs(
     dirs: Iterable[str], recursive: bool = False, skip_dirs: Iterable[str] = ()
@@ -419,7 +434,10 @@ def sync(
 
         final_path = p
         action_taken = None
-        if do_rename or do_import:
+        held = hold_reason(data) if (do_rename or do_import) else None
+        if held:
+            print(f"HOLD {os.path.basename(p)}: {held}; left in place", file=sys.stderr)
+        if (do_rename or do_import) and not held:
             target_fname = data.get("target_filename") or os.path.basename(p)
             dest_dir = data.get("target_dir") if do_import else os.path.dirname(p)
             dest_dir = dest_dir or os.path.dirname(p)
@@ -432,6 +450,7 @@ def sync(
                     counts["actions"].append({"src": p, "dest": candidate_dest, "action": "duplicate"})
                     if not dry_run:
                         dup_dir = os.path.join(dest_dir, "Duplicates")
+                        paths.check_destination(dup_dest)
                         os.makedirs(dup_dir, exist_ok=True)
                         dup_dest = unique_path_in_dir(dup_dir, os.path.basename(p))
                         try:
@@ -446,6 +465,7 @@ def sync(
                 else:
                     act_type = "import" if do_import else "rename"
                     if not dry_run:
+                        paths.check_destination(free_dest)
                         os.makedirs(os.path.dirname(free_dest), exist_ok=True)
                         src_txt = os.path.splitext(p)[0] + ".txt"
                         dest_txt = os.path.splitext(free_dest)[0] + ".txt"

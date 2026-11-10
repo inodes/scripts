@@ -28,7 +28,7 @@ finance/
 ├── sync_statements.py             # Statement rename, import & duplicate elimination CLI
 ├── fetch_email_invoices.py        # Automated IMAP invoice & statement email downloader
 ├── audit_hazel_logs.py            # Hazel processing log auditor & provider scaffolder
-├── process_pdf.sh                 # Generic Hazel entry script (with fallback rule support)
+├── pdf_handler.sh                 # Finance handler called by the generic ../process_pdf.sh
 ├── config.example.json            # Sanitized provider & directory template
 ├── category_rules.example.json    # Sanitized category rules template
 └── tests/                         # Synthetic, zero-PII unit tests
@@ -108,10 +108,35 @@ plus user-specific `category_rules` and provider scan directories, are read from
 `~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json`. Nothing in the repository contains
 real identifiers; fixtures use fabricated values. See `config.example.json` for the shape.
 
-**Report location:** the generated `index.html` is written to `directories.reports` in `config.json`
-(or an explicit `report_path`), falling back to `directories.statements`. Keep it inside iCloud.
+## File locations (one rule: nothing hard-codes an iCloud path)
 
-**Database location:** the SQLite index is kept in a *local* folder (`data_dir`, default
-`~/Library/Application Support/pdf-audit`), never in iCloud, because sync can corrupt a live SQLite/WAL file.
-`store.connect` refuses an iCloud path unless `PDF_AUDIT_ALLOW_ICLOUD_DB=1`. Reports (HTML), PDFs and
-`config.json` live in iCloud; the database can be rebuilt at any time from the PDFs.
+Every location is defined once, in `statements/paths.py`, and comes from the `directories` section of
+`config.json` (values can reference each other, e.g. `"reports": "{finance}/Reports"`):
+
+| Key | Default | Holds |
+|---|---|---|
+| `icloud` | iCloud Drive root | |
+| `finance` | `{icloud}/Finance` | `config.json`, `category_rules.json` only |
+| `statements` | `{finance}/Statements` | one sub-folder per provider, each with its own `Duplicates/` |
+| `payslips` | `{finance}/Payslips` | one sub-folder per employer |
+| `shares` | `{finance}/Shares` | equity exports |
+| `reports` | `{finance}/Reports` | generated `index.html` (or set `report_path`) |
+| `pdf` | `{icloud}/PDF` | Hazel staging folder |
+| `landing` | `~/Downloads` | |
+| `data` | `~/Library/Application Support/pdf-audit` | SQLite index: **local only** |
+| `logs` | `~/Library/Logs/Hazel` | `process_pdf.log` |
+
+`paths.check_destination()` is called before every move or write and refuses to:
+put a document or report loose in a container folder (iCloud root, Finance, Statements, Payslips, Shares);
+write anything inside the git repository; or keep the database in iCloud (sync can corrupt SQLite).
+The report is written atomically (temp file, then rename). The database can always be rebuilt from the PDFs.
+
+## `pdf_handler.sh` (Finance's hook into the generic dispatcher)
+
+`../process_pdf.sh` at the repo root is the generic, section-agnostic script Hazel runs. It offers each
+PDF to every `<section>/pdf_handler.sh`; `finance/pdf_handler.sh` is this section's handler and simply runs
+`sync_statements.py --provider auto --import --delete-duplicates --hazel` (exit `0` handled, `1` not a
+finance document, `2+` failure).
+
+A recognised document is only renamed or moved when it also yields a date **and** reconciles; otherwise it is
+logged as `HOLD` and left in place (`--allow-unreconciled` / `PDF_AUDIT_ALLOW_UNRECONCILED=1` for manual runs).
