@@ -118,7 +118,7 @@ Every location is defined once, in `statements/paths.py`, and comes from the `di
 | `icloud` | iCloud Drive root | |
 | `finance` | `{icloud}/Finance` | `config.json`, `category_rules.json` only |
 | `statements` | `{finance}/Statements` | one sub-folder per provider, each with its own `Duplicates/` |
-| `payslips` | `{finance}/Payslips` | one sub-folder per employer |
+| `payslips` | `{finance}/Payslips` | one sub-folder per employer, each with its own `Duplicates/` (payslip providers file here) |
 | `shares` | `{finance}/Shares` | equity exports |
 | `reports` | `{finance}/Reports` | generated `index.html` (or set `report_path`) |
 | `pdf` | `{icloud}/PDF` | Hazel staging folder |

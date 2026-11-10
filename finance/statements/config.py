@@ -104,13 +104,15 @@ def load() -> Dict[str, Any]:
 
     for pk, pv in cfg["providers"].items():
         if pv.get("target_dir"):
-            pv["target_dir"] = os.path.expanduser(pv["target_dir"])
+            pv["target_dir"] = paths.expand(pv["target_dir"])
             cfg["target_dirs"][pk] = pv["target_dir"]
         if pv.get("scan_dirs"):
-            pv["scan_dirs"] = [os.path.expanduser(x) for x in pv["scan_dirs"]]
+            pv["scan_dirs"] = [paths.expand(x) for x in pv["scan_dirs"]]
+        if pv.get("duplicates_dir"):
+            pv["duplicates_dir"] = paths.expand(pv["duplicates_dir"])
 
-    cfg["scan_dirs"] = [os.path.expanduser(x) for x in cfg.get("scan_dirs", [])]
-    cfg["target_dirs"] = {k: os.path.expanduser(v) for k, v in cfg.get("target_dirs", {}).items()}
+    cfg["scan_dirs"] = [paths.expand(x) for x in cfg.get("scan_dirs", [])]
+    cfg["target_dirs"] = {k: paths.expand(v) for k, v in cfg.get("target_dirs", {}).items()}
     cfg["data_dir"] = os.path.expanduser(cfg["data_dir"])
     cfg["directories"] = dict(paths.directories())
     cfg["db"] = os.path.join(cfg["data_dir"], "pdf_audit.db")

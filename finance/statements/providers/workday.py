@@ -67,11 +67,8 @@ class WorkdayProvider(BasePDFProvider):
     cadence: str = "semi_monthly"
     expected_period_days: int = 15
     max_gap_days: int = 2
-    target_dir: Optional[str] = paths.statements("Workday")
-    duplicates_dir: Optional[str] = paths.statements("Workday", "Duplicates")
+    target_dir: Optional[str] = paths.payslips("Workday")
     scan_dirs: List[str] = [
-        paths.statements("Workday"),
-        paths.under("pdf", "Workday"),
         paths.payslips("Workday"),
         paths.get("pdf"),
     ]

@@ -30,7 +30,6 @@ class INGProvider(BasePDFProvider):
     expected_period_days: int = 91
     max_gap_days: int = 2
     target_dir: Optional[str] = paths.statements("ING")
-    duplicates_dir: Optional[str] = paths.statements("ING", "Duplicates")
     scan_dirs: List[str] = [
         paths.statements("ING"),
     ]

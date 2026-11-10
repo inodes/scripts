@@ -103,6 +103,14 @@ def directories(refresh: bool = False) -> Dict[str, str]:
     return _CACHE
 
 
+def expand(value: str) -> str:
+    """Expand {name} tokens (from "directories") and ~ in a config value, e.g. "{payslips}/Acme"."""
+    out = value
+    for key, path in directories().items():
+        out = out.replace("{" + key + "}", path)
+    return _norm(out)
+
+
 def get(name: str) -> str:
     return directories()[name]
 

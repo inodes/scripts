@@ -48,7 +48,6 @@ class CommBankProvider(BasePDFProvider):
     expected_period_days: int = 30
     max_gap_days: int = 3
     target_dir: Optional[str] = paths.statements("commbank")
-    duplicates_dir: Optional[str] = paths.statements("commbank", "Duplicates")
     scan_dirs: List[str] = [
         paths.statements("commbank"),
     ]

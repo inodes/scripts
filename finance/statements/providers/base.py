@@ -316,8 +316,10 @@ class BasePDFProvider:
         }
         if self.target_dir:
             d["target_dir"] = self.target_dir
-            d["duplicates_dir"] = self.duplicates_dir or os.path.join(self.target_dir, "Duplicates")
-        elif self.duplicates_dir:
+        # duplicates_dir is only emitted when a provider sets one explicitly; otherwise it is
+        # derived at run time as <resolved target_dir>/Duplicates, so a config override of
+        # target_dir carries its Duplicates folder with it.
+        if self.duplicates_dir:
             d["duplicates_dir"] = self.duplicates_dir
         if self.scan_dirs:
             d["scan_dirs"] = list(self.scan_dirs)

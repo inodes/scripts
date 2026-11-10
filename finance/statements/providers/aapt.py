@@ -65,10 +65,10 @@ class AAPTProvider(BasePDFProvider):
     cadence: str = "monthly"
     expected_period_days: int = 30
     max_gap_days: int = 4
-    target_dir: Optional[str] = paths.statements("AAPT")
-    duplicates_dir: Optional[str] = paths.statements("AAPT", "Duplicates")
+    target_dir: Optional[str] = paths.payslips("AAPT")
     scan_dirs: List[str] = [
         paths.payslips("AAPT"),
+        paths.get("pdf"),
     ]
     source_domains: List[str] = ["aapt.com.au"]
     filename_template: Optional[str] = "AAPT_Payslip_{period_end_compact}.pdf"
