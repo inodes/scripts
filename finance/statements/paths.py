@@ -3,10 +3,11 @@
 Nothing else in the codebase should spell out an iCloud path. All locations derive from the
 "directories" section of the user's external config.json, overlaid on the defaults below:
 
-    icloud      iCloud Drive root
+    icloud      iCloud Drive root: ~/iCloud (symlink) when present, else the Mobile Documents path
     finance     {icloud}/Finance                 (config.json lives here; no PDFs at this level)
     statements  {finance}/Statements             (one sub-folder per provider; no loose files)
     payslips    {finance}/Payslips               (one sub-folder per employer/provider)
+    invoices    {finance}/Invoices_Receipts      (one sub-folder per vendor)
     shares      {finance}/Shares
     reports     {finance}/Reports                (generated HTML)
     pdf         {icloud}/PDF                     (Hazel staging folder)
@@ -21,7 +22,9 @@ import json
 import os
 from typing import Dict, Optional
 
-ICLOUD = "~/Library/Mobile Documents/com~apple~CloudDocs"
+ICLOUD_REAL = "~/Library/Mobile Documents/com~apple~CloudDocs"
+ICLOUD_LINK = "~/iCloud"  # preferred: a symlink to ICLOUD_REAL (ln -s "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ~/iCloud)
+ICLOUD = ICLOUD_LINK if os.path.isdir(os.path.expanduser(ICLOUD_LINK)) else ICLOUD_REAL
 PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../finance
 REPO_DIR = os.path.dirname(PACKAGE_DIR)
 
@@ -30,6 +33,7 @@ DEFAULT_DIRECTORIES: Dict[str, str] = {
     "finance": "{icloud}/Finance",
     "statements": "{finance}/Statements",
     "payslips": "{finance}/Payslips",
+    "invoices": "{finance}/Invoices_Receipts",
     "shares": "{finance}/Shares",
     "reports": "{finance}/Reports",
     "pdf": "{icloud}/PDF",
@@ -39,7 +43,7 @@ DEFAULT_DIRECTORIES: Dict[str, str] = {
 }
 
 # Folders that only hold sub-folders (or config): files must never be written directly into them.
-CONTAINER_KEYS = ("icloud", "finance", "statements", "payslips", "shares")
+CONTAINER_KEYS = ("icloud", "finance", "statements", "payslips", "invoices", "shares")
 
 _CACHE: Optional[Dict[str, str]] = None
 
@@ -58,8 +62,9 @@ def config_path() -> str:
     if env:
         return _norm(env)
     icloud_cfg = _norm(f"{ICLOUD}/Finance/config.json")
-    if os.path.isfile(icloud_cfg):
-        return icloud_cfg
+    for cand in (icloud_cfg, _norm(f"{ICLOUD_REAL}/Finance/config.json")):
+        if os.path.isfile(cand):
+            return cand
     repo_cfg = os.path.join(PACKAGE_DIR, "config.json")
     if os.path.isfile(repo_cfg):
         return repo_cfg
@@ -80,6 +85,8 @@ def _resolve(raw: Dict[str, str]) -> Dict[str, str]:
             if token in val:
                 val = val.replace(token, one(ref, seen + (key,)))
         out[key] = _norm(val)
+        if key == "icloud" and out[key] == _norm(ICLOUD_LINK) and not os.path.isdir(out[key]):
+            out[key] = _norm(ICLOUD_REAL)  # ~/iCloud symlink missing on this machine: use the real folder
         return out[key]
 
     for k in raw:
@@ -142,9 +149,10 @@ def show(path: Optional[str]) -> str:
     """Compact display form: ~/iCloud/... or ~/..."""
     if not path:
         return "-"
-    icloud, home = get("icloud"), os.path.expanduser("~")
-    if path.startswith(icloud):
-        return "~/iCloud" + path[len(icloud):]
+    home = os.path.expanduser("~")
+    for icloud in (get("icloud"), _norm(ICLOUD_LINK), _norm(ICLOUD_REAL)):
+        if path.startswith(icloud + os.sep) or path == icloud:
+            return "~/iCloud" + path[len(icloud):]
     return "~" + path[len(home):] if path.startswith(home) else path
 
 

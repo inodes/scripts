@@ -11,6 +11,7 @@ from .ing import INGProvider
 from .commbank import CommBankProvider
 from .workday import WorkdayProvider
 from .aapt import AAPTProvider
+from .apple import AppleProvider
 
 AVAILABLE_PROVIDERS: List[BasePDFProvider] = [
     HSBCCreditCardProvider(),
@@ -21,6 +22,7 @@ AVAILABLE_PROVIDERS: List[BasePDFProvider] = [
     CommBankProvider(),
     WorkdayProvider(),
     AAPTProvider(),
+    AppleProvider(),
     GenericPDFProvider(),
 ]
 
