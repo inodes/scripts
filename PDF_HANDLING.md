@@ -37,3 +37,9 @@ default off), `reasons`. Personal or supplier-specific rules live there, never i
 ## Adding a handler
 Create `<section>/pdf_handler.sh` obeying the contract in `process_pdf.sh` (0 handled, 1 not mine,
 10 mine but held with a `reason=` field, 2+ failure).
+
+## Config vs data
+`config.json` holds settings only (locations, providers, rules). Your own data (remittances, ESS
+history, valuations, renovation costs, ...) lives as plain JSON in `directories.records`
+(`Finance/Data/<name>.json`, one file per dataset, safe in iCloud because it is not a database).
+An inline `"personal"` block in config.json is still read as a fallback; the data files win.

@@ -10,6 +10,7 @@ Nothing else in the codebase should spell out an iCloud path. All locations deri
     invoices    {finance}/Invoices_Receipts      (one sub-folder per vendor)
     shares      {finance}/Shares
     reports     {finance}/Reports                (generated HTML)
+    records     {finance}/Data                   (your own data as plain JSON, one file per dataset)
     pdf         {icloud}/PDF                     (Hazel staging folder)
     unsorted / unknown_type / needs_review   {pdf}/<name>   (triage folders, see pdfflow/)
     landing     ~/Downloads
@@ -37,6 +38,7 @@ DEFAULT_DIRECTORIES: Dict[str, str] = {
     "invoices": "{finance}/Invoices_Receipts",
     "shares": "{finance}/Shares",
     "reports": "{finance}/Reports",
+    "records": "{finance}/Data",
     "pdf": "{icloud}/PDF",
     "unsorted": "{pdf}/unsorted",
     "unknown_type": "{pdf}/unknown_type",

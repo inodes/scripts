@@ -64,6 +64,28 @@ def get_category_rules_path() -> Optional[str]:
     return None
 
 
+def load_records() -> Dict[str, Any]:
+    """Your own data (remittances, share history, valuations, ...), kept OUT of config.json.
+
+    Each <records>/<name>.json holds the value of cfg["personal"][<name>]. config.json holds
+    settings only and points here through directories.records.
+    """
+    out: Dict[str, Any] = {}
+    folder = paths.get("records")
+    if not os.path.isdir(folder):
+        return out
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith(".json") or name.startswith("."):
+            continue
+        fp = os.path.join(folder, name)
+        try:
+            with open(fp, encoding="utf-8") as f:
+                out[name[:-5]] = json.load(f)
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"cannot read data file {paths.show(fp)}: {e}")
+    return out
+
+
 def load() -> Dict[str, Any]:
     defaults = build_defaults()
     cfg = dict(defaults)
@@ -90,6 +112,12 @@ def load() -> Dict[str, Any]:
             cfg["data_dir"] = paths.get("data")
         if isinstance(category_rules, dict):
             cfg["category_rules"] = dict(category_rules)
+
+    # Data lives in <records>/*.json; an inline "personal" block in config.json is still honoured
+    # (legacy) but the data files win.
+    personal = dict(cfg.get("personal") or {})
+    personal.update(load_records())
+    cfg["personal"] = personal
 
     rules_file = get_category_rules_path()
     if rules_file and os.path.isfile(rules_file):

@@ -13,7 +13,8 @@
     "logs": "~/Library/Logs/Hazel",
     "unsorted": "{pdf}/unsorted",
     "unknown_type": "{pdf}/unknown_type",
-    "needs_review": "{pdf}/needs_review"
+    "needs_review": "{pdf}/needs_review",
+    "records": "{finance}/Data"
   },
   "skip_dirs": [
     "old",
@@ -46,39 +47,6 @@
       "alias": "Example Account",
       "bank": "Example Bank"
     }
-  },
-  "personal": {
-    "property_profile": {
-      "address": "1 Example St",
-      "purchase_price": 1000000.0,
-      "current_valuation": 1100000.0
-    },
-    "property_valuation_anchors": [
-      [
-        "2020-01",
-        1000000.0
-      ],
-      [
-        "2026-01",
-        1100000.0
-      ]
-    ],
-    "renovation_breakdown": [],
-    "ess_history": [],
-    "remittances": [],
-    "holdings_defaults": {
-      "total_held_shares": 0,
-      "current_price": 0.0,
-      "total_current_val": 0.0,
-      "total_cost_basis": 0.0
-    },
-    "vehicle_purchase_refs": [],
-    "renovation_window": [
-      "2020-01-01",
-      "2020-06-30"
-    ],
-    "departure_date": "",
-    "forfeited_shares": 0
   },
   "_comment": "Copy to your iCloud Finance folder as config.json. Every location derives from 'directories'; provider folders default to {statements}/<Provider>. Override a provider's target_dir/scan_dirs only if you need something different.",
   "triage": {
