@@ -2,7 +2,9 @@
 # process_pdf.sh — generic PDF dispatcher for Hazel / Folder Actions / CLI.
 #
 # Usage:
-#   process_pdf.sh [--dry-run] FILE.pdf [FILE.pdf ...]
+#   process_pdf.sh [--dry-run] [--no-wait] FILE.pdf [FILE.pdf ...]
+#   process_pdf.sh --status          what is waiting in unsorted / needs_review / unknown_type
+#   process_pdf.sh --sweep [--apply] [--resort]   re-run everything waiting (dry run by default)
 #
 # This script knows nothing about any particular kind of document. For each PDF that is
 # ready, it offers the file to every section's handler in turn until one claims it:
@@ -12,9 +14,14 @@
 # Handler contract (exit code):
 #   0   handled: the handler recognised the file and dealt with it (stop here)
 #   1   not mine: leave the file untouched and try the next handler
+#   10  mine, but held: recognised yet it failed a check (no date, does not reconcile, format
+#       changed). Stop offering it; triage files it under PDF/needs_review/<reason>/ where
+#       <reason> comes from the handler's "reason=" field.
 #   2+  failure: stop and report an error
 # Handlers print single-line "[tag] ..." records on stdout; they are logged verbatim.
-# A file no handler claims is left exactly where it is.
+# A file no handler claims is passed to triage (pdf_triage.py): files inside the PDF/ staging
+# area are filed into PDF/<type>/, PDF/unknown_type/ or PDF/needs_review/<reason>/; files
+# anywhere else are left exactly where they are. See pdfflow/triage.py.
 # Add a new section by creating <section>/pdf_handler.sh; no change is needed here.
 #
 # Exit codes (Hazel runs this as a "Run shell script" ACTION, where non-zero = error):
@@ -27,6 +34,7 @@
 #   PROCESS_PDF_LOG_DIR    log folder (default ~/Library/Logs/Hazel); log file is process_pdf.log
 #   PROCESS_PDF_HANDLERS   space-separated handler paths, to override discovery/order
 #   PROCESS_PDF_STRICT     see above
+#   PROCESS_PDF_TRIAGE=0   disable the triage step (unclaimed files stay where they are)
 #
 # Compatible with the stock macOS bash 3.2.
 
@@ -77,6 +85,7 @@ skip_reason() {
     local s1 s2
     s1="$(file_size "$f")"
     [[ -n "$s1" && "$s1" != "0" ]] || { echo "empty_or_still_downloading"; return; }
+    (( NO_WAIT == 1 )) && { echo ""; return; }
     sleep 1
     s2="$(file_size "$f")"
     [[ "$s1" == "$s2" ]] || { echo "still_being_written"; return; }
@@ -118,12 +127,24 @@ acquire_lock() {
     trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 }
 
+find_python() {
+    local c
+    for c in "$ROOT_DIR/.direnv/python-3.11/bin/python3" "$ROOT_DIR/finance/.direnv/python-3.11/bin/python3"; do
+        [[ -x "$c" ]] && { echo "$c"; return 0; }
+    done
+    command -v python3 2>/dev/null
+}
+
 DRY_RUN=0
+NO_WAIT=0
 FILES=()
 for arg in "$@"; do
     case "$arg" in
         --dry-run|-n) DRY_RUN=1 ;;
-        -h|--help) sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --no-wait) NO_WAIT=1 ;;
+        --status) exec "$(find_python)" "$ROOT_DIR/pdf_triage.py" status ;;
+        --sweep) shift; exec "$(find_python)" "$ROOT_DIR/pdf_triage.py" sweep "$@" ;;
+        -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) FILES+=("$arg") ;;
     esac
 done
@@ -168,6 +189,7 @@ UNCLAIMED=0
 FAILED=0
 for f in "${READY[@]}"; do
     claimed=0
+    held_reason=""
     for h in "${HANDLERS[@]}"; do
         section="$(basename "$(dirname "$h")")"
         OUTPUT="$("$h" ${HARGS[@]+"${HARGS[@]}"} "$f" 2>&1)"
@@ -179,6 +201,11 @@ for f in "${READY[@]}"; do
         if (( RC == 0 )); then
             claimed=1
             break
+        elif (( RC == 10 )); then
+            claimed=0
+            held_reason="$(printf '%s\n' "$OUTPUT" | sed -n 's/.* reason=\([A-Za-z0-9_]*\).*/\1/p' | tail -1)"
+            held_reason="${held_reason:-held}"
+            break
         elif (( RC >= 2 )); then
             log "[process_pdf] ERROR status=handler_failed handler=$section rc=$RC file=\"$(basename "$f")\""
             FAILED=$RC
@@ -188,7 +215,17 @@ for f in "${READY[@]}"; do
     done
     if (( claimed == 0 )); then
         UNCLAIMED=$(( UNCLAIMED + 1 ))
-        log "[process_pdf] UNCLAIMED file=\"$(basename "$f")\" handlers=${#HANDLERS[@]}"
+        log "[process_pdf] UNCLAIMED file=\"$(basename "$f")\" handlers=${#HANDLERS[@]}${held_reason:+ held=$held_reason}"
+        if [[ "${PROCESS_PDF_TRIAGE:-1}" != "0" ]]; then
+            TARGS=(place)
+            (( DRY_RUN == 1 )) && TARGS+=(--dry-run)
+            [[ -n "$held_reason" ]] && TARGS+=(--held "$held_reason")
+            TOUT="$("$(find_python)" "$ROOT_DIR/pdf_triage.py" "${TARGS[@]}" "$f" 2>&1)"
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                log "$line"
+            done <<< "$TOUT"
+        fi
     fi
 done
 

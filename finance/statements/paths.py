@@ -11,6 +11,7 @@ Nothing else in the codebase should spell out an iCloud path. All locations deri
     shares      {finance}/Shares
     reports     {finance}/Reports                (generated HTML)
     pdf         {icloud}/PDF                     (Hazel staging folder)
+    unsorted / unknown_type / needs_review   {pdf}/<name>   (triage folders, see pdfflow/)
     landing     ~/Downloads
     data        ~/Library/Application Support/pdf-audit   (SQLite: local only, never iCloud)
     logs        ~/Library/Logs/Hazel
@@ -37,6 +38,9 @@ DEFAULT_DIRECTORIES: Dict[str, str] = {
     "shares": "{finance}/Shares",
     "reports": "{finance}/Reports",
     "pdf": "{icloud}/PDF",
+    "unsorted": "{pdf}/unsorted",
+    "unknown_type": "{pdf}/unknown_type",
+    "needs_review": "{pdf}/needs_review",
     "landing": "~/Downloads",
     "data": "~/Library/Application Support/pdf-audit",
     "logs": "~/Library/Logs/Hazel",

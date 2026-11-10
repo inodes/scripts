@@ -308,6 +308,7 @@ def run_batch(
     hazel_lines = []
     seen_targets: Dict[str, str] = {}
     skipped_unrecognised = 0
+    held_count = 0
     moved_count = 0
     renamed_count = 0
     already_count = 0
@@ -355,6 +356,8 @@ def run_batch(
         prov = detect_provider(probe_txt, p, forced_provider=provider_filter if is_single else None)
         if not matches_provider_filter(prov.name, prov.doc_type, provider_filter):
             skipped_unrecognised += 1
+            if meta_prov:
+                held_count += 1
             if hazel_log and is_single:
                 if meta_prov:
                     hazel_lines.append(
@@ -394,6 +397,7 @@ def run_batch(
                 hold = "not_reconciled"
         if hold:
             skipped_unrecognised += 1
+            held_count += 1
             msg = (
                 f"[process_pdf] HOLD file={os.path.basename(p)} provider={data.get('doc_type')} reason={hold} "
                 f"action=\"left in place; inspect, then re-run with --allow-unreconciled if it is genuine\""
@@ -561,7 +565,9 @@ def run_batch(
                     f"renamed={renamed_count} standard={already_count} "
                     f"duplicates={duplicate_count} skipped={skipped_unrecognised}"
                 )
-        return 0 if len(rows) > 0 else 1
+        if rows:
+            return 0
+        return 10 if held_count else 1
 
     if not rows:
         print("No matching provider statements found.")

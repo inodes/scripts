@@ -10,7 +10,10 @@
     "pdf": "{icloud}/PDF",
     "landing": "~/Downloads",
     "data": "~/Library/Application Support/pdf-audit",
-    "logs": "~/Library/Logs/Hazel"
+    "logs": "~/Library/Logs/Hazel",
+    "unsorted": "{pdf}/unsorted",
+    "unknown_type": "{pdf}/unknown_type",
+    "needs_review": "{pdf}/needs_review"
   },
   "skip_dirs": [
     "old",
@@ -77,5 +80,15 @@
     "departure_date": "",
     "forfeited_shares": 0
   },
-  "_comment": "Copy to your iCloud Finance folder as config.json. Every location derives from 'directories'; provider folders default to {statements}/<Provider>. Override a provider's target_dir/scan_dirs only if you need something different."
+  "_comment": "Copy to your iCloud Finance folder as config.json. Every location derives from 'directories'; provider folders default to {statements}/<Provider>. Override a provider's target_dir/scan_dirs only if you need something different.",
+  "triage": {
+    "stale_days": 14,
+    "types": [
+      {
+        "name": "example_landlord",
+        "text": "Example Property Management Pty Ltd"
+      }
+    ],
+    "reasons": {}
+  }
 }

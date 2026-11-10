@@ -593,7 +593,43 @@ def collect_report_data(db, cfg: Optional[Dict[str, Any]] = None, provider_filte
         "cashflow_by_month": inflow_outflow_by_month,
         "transactions": txs,
         "shares": collect_shares_data(),
+        "triage": collect_triage(),
     }
+
+
+def collect_triage() -> Dict[str, Any]:
+    """Counts of PDFs waiting in the triage folders (pdfflow); empty if unavailable."""
+    try:
+        import sys
+        repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if repo not in sys.path:
+            sys.path.insert(0, repo)
+        from pdfflow import triage
+        return triage.summary()
+    except Exception:
+        return {}
+
+
+def triage_card_html(t: Dict[str, Any]) -> str:
+    """Audit-tab card: what is waiting in unsorted / needs_review / unknown_type."""
+    if not t or not t.get("triage"):
+        return ""
+    import html as _h
+    rows = ""
+    for b in t["triage"]:
+        if not b["count"] and not b["folder"] == "unsorted":
+            continue
+        old = f'{b["oldest_days"]}d &middot; {_h.escape(b["oldest"] or "")[:44]}' if b["oldest"] else "&ndash;"
+        flag = ' <span style="color: var(--warning);">stale</span>' if b.get("stale") else ""
+        rows += (f'<tr><td>{_h.escape(b["folder"])}</td><td style="text-align:right;">{b["count"]}</td>'
+                 f'<td style="color: var(--text-muted);">{old}{flag}</td></tr>')
+    colour = "var(--warning)" if t.get("needs_attention") else "var(--success)"
+    return f"""
+      <div class="card">
+        <div class="card-title">&#128229; PDF triage &mdash; <span style="color: {colour};">{t.get('needs_attention', 0)} waiting for attention</span></div>
+        <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 10px;">Unsorted and needs_review need a decision; type folders and unknown_type are filed but not yet handled. Run <code>process_pdf.sh --status</code> for the live view.</div>
+        <table class="data-table"><thead><tr><th>Folder</th><th style="text-align:right;">Files</th><th>Oldest waiting</th></tr></thead><tbody>{rows}</tbody></table>
+      </div>"""
 
 
 def collect_shares_data() -> Dict[str, Any]:
@@ -2660,6 +2696,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
           <div class="kpi-subtext">Continuity timeline checks</div>
         </div>
       </div>
+      {triage_card_html(data.get('triage', {}))}
 
       <!-- Statement Coverage Matrix Card -->
       <div class="card">
