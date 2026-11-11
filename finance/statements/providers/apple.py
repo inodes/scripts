@@ -13,6 +13,7 @@ Formats:
   8. v_email_adjust     "Adjustment Note" (cancellation / credit).
   9. v_email_appstore   "Tax Invoice" with APPLE ID / DATE / ORDER ID / DOCUMENT NO. / TOTAL (subscriptions, 2021-2024).
  10. v_email_appstore_new  "Tax Invoice", then date, "Order ID:", "Document:", "Account Balance" (2025+).
+ 11. v_japan_invoice   Apple Japan, Inc. invoice (Japanese labels, amounts in JPY; data["currency"] = "JPY").
 
 Standard filenames (all under {invoices}/Apple):
   Apple_Store_Receipt_{YYYYMMDD}_{R-number}.pdf   (Apple_Store_Refund_... for a refund receipt)
@@ -154,6 +155,16 @@ Billing and Payment
 Sample Person
 Account Balance $44.99
         """,
+        "v_japan_invoice": """
+納品書
+Apple Japan, Inc.
+ご請求番号: AJ00000001
+ご請求⽇: 09/16/2022
+ご請求⾦額: 1,100 円
+製品名 数量 単価 ⼩計
+Sample Accessory 1 1,000 1,000
+⼩計 JPY 1,000 消費税 JPY 100 合計 JPY 1,100
+        """,
         "v_online_receipt": """
 Apple Store
 Invoice Receipt
@@ -172,6 +183,8 @@ For a total of A$1,999.00
     def detect_version(self, text: str, pdf_path: str = "") -> Optional[str]:
         # Text extractors differ in how they order columns, so match on labels rather than layout.
         t = _clean(text)
+        if "Apple Japan" in t and re.search(r"[A-Z]{2}\d{8}", t) and "JPY" in t and "請求番号" in t:
+            return "v_japan_invoice"
         if re.search(r"Tax Invoice Number:\s*\S+", t) and "Tax Invoice Date:" in t and "Apple Pty" in t:
             return "v_tax_invoice"
         if re.search(r"(Tax Invoice|Receipt) & Renewal Notice", t) and re.search(r"Document:\s*\d", t):
@@ -206,7 +219,7 @@ For a total of A$1,999.00
         data: Dict[str, Any] = {
             "provider": self.name, "doc_type": self.doc_type, "document_kind": self.document_kind,
             "format_version": ver, "company": "Apple", "accounts": [], "transactions": [],
-            "warnings": [], "reconciled": False,
+            "warnings": [], "reconciled": False, "currency": "AUD",
         }
         issue: Optional[datetime.date] = None
         ref: Optional[str] = None
@@ -276,6 +289,23 @@ For a total of A$1,999.00
             data["filename_stem"] = "Apple_Invoice"
             if inc is not None and inc < 0:
                 data["filename_stem"] = "Apple_Credit_Note"
+        elif ver == "v_japan_invoice":
+            # Labels are Japanese; the extractor may return Kangxi-radical look-alikes (⽇, ⼩), so match loosely.
+            m = re.search(r"請求番号:\s*([A-Z]{2}\d{8})", t)
+            ref = m.group(1) if m else None
+            m = re.search(r"請求.:\s*(\d{2})/(\d{2})/(\d{4})", t)  # MM/DD/YYYY
+            if m:
+                try:
+                    issue = datetime.date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+                except ValueError:
+                    issue = None
+            m = re.search(r".計\s*JPY\s*([\d,]+)\s*消費税\s*JPY\s*([\d,]+)\s*合計\s*JPY\s*([\d,]+)", t)
+            data["currency"] = "JPY"
+            if m:
+                sub, tax, tot = (Decimal(x.replace(",", "")) for x in m.groups())
+                total = tot
+                data["reconciled"] = sub + tax == tot and tot > 0
+            data["filename_stem"] = "Apple_Invoice"
         elif ver == "v_email_itunes":
             m = re.search(r"Order (?:Number|ID):\s*([A-Z0-9]+)", t)
             ref = m.group(1) if m else None
@@ -359,6 +389,7 @@ For a total of A$1,999.00
             "v_retail_receipt": "Apple_Store_Receipt_20120305_R0000000001.pdf",
             "v_online_classic": "Apple_Invoice_20130707_0000000002.pdf",
             "v_online_receipt": "Apple_Invoice_20230925_MA00000001.pdf",
+            "v_japan_invoice": "Apple_Invoice_20220916_AJ00000001.pdf",
             "v_email_appstore": "Apple_Receipt_20240602_000000000001.pdf",
             "v_email_appstore_new": "Apple_Receipt_20251110_000000000002.pdf",
         }

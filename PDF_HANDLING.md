@@ -43,3 +43,10 @@ Create `<section>/pdf_handler.sh` obeying the contract in `process_pdf.sh` (0 ha
 history, valuations, renovation costs, ...) lives as plain JSON in `directories.records`
 (`Finance/Data/<name>.json`, one file per dataset, safe in iCloud because it is not a database).
 An inline `"personal"` block in config.json is still read as a fallback; the data files win.
+
+## Foreign-currency invoices and the optional bank cross-check
+Apple Japan invoices are recognised (recorded as JPY, never mixed into AUD figures). To compare them
+with bank lines, put rough rates in `Finance/Data/fx_rates.json` (data, not config: `{"JPY": {"2022-09-16":
+{"aud": 0.0104, "source": "..."}}}`; a `YYYY-MM` key covers a month) and run
+`python3 finance/apple_crosscheck.py` (read-only; `--all` also checks AUD invoices; window `--days`, amount
+`--tolerance`, default 6% for card FX margin). It reports matched / ambiguous / unmatched / no_rate.
