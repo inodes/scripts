@@ -278,7 +278,7 @@ class BasePDFProvider:
        - Rather than splitting one institution into separate providers per year, keep ONE provider class
          with `format_versions = ["v2019_classic", "v2025_dual_ccy", ...]`.
        - Implement `detect_version(text, pdf_path) -> Optional[str]` to identify which format era a PDF
-         uses, and branch inside `extract()` as needed so all historical and current layouts normalize
+         uses, and branch inside `extract()` as needed so all historical and current layouts normalise
          into the same output schema and `filename_template`.
        - Populate `sample_variants = {"v2019_classic": "...", "v2025_dual_ccy": "..."}` with synthetic
          PII-free text fixtures for EVERY supported format version. `run_self_test()` automatically

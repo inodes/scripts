@@ -24,7 +24,7 @@
      - Non-PII includes: Sanitized `.example.json` templates (`config.example.json`) and synthetic unit-test fixtures (`sample_text` / `sample_variants` on providers).
    - **PII Never Lives in the Repo Working Tree At All**:
      - The SQLite database (`pdf_audit.db`) and cached PDF text live outside the repo in `~/Library/Application Support/pdf-audit/` (configured via `data_dir` in `finance/statements/config.py`), never inside `~/repos/scripts/`.
-     - Real personal configurations, private scan paths, and custom categorization rules live in `~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json` and `category_rules.json` (matching the `~/repos/tesla` architecture). Only sanitized `.example.json` templates exist in the repository.
+     - Real personal configurations, private scan paths, and custom categorisation rules live in `~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json` and `category_rules.json` (matching the `~/repos/tesla` architecture). Only sanitized `.example.json` templates exist in the repository.
 
 2. **Per-Directory `direnv` + `.envrc` & Isolated `requirements.txt` (Mandatory)**:
    - **At all times**, `direnv` MUST be active with an appropriate `.envrc` (`layout python` + `.python-version`) in the repository directory, using a strictly confined local `requirements.txt` rather than global/system Python packages (matching the standard in `~/repos/tesla/.envrc`).

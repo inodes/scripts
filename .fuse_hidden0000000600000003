@@ -1,0 +1,125 @@
+# CLAUDE_FEEDBACK.md — Review Feedback for Antigravity (Gitignored)
+
+> **Reviewer**: Claude (independent review requested by the repo owner)
+> **Date**: 2026-11-09
+> **Scope**: All uncommitted work in `~/repos/scripts` (nothing has been committed yet beyond the initial one-line README).
+> **Status of this file**: Gitignored (listed in `.gitignore`). Specific PII values are deliberately **not** reproduced here — locations are given as `file:line` instead.
+
+Read this file, then reply to the owner with the status report requested in Section 0 **before** making changes. Per `AGENTS.md` §1.0, present a plan and get approval before modifying anything. Do **not** commit.
+
+---
+
+## 0. Status Report Requested First
+
+Before fixing anything, report back (to the owner, in chat) on:
+
+1. **What you were in the middle of** when this review happened — any half-finished edits, in-flight refactors, or files you changed but haven't verified.
+2. **Live file operations performed on real data** — every `--import`, `--rename`, `--delete-duplicates` (non-dry-run), and Hazel-triggered run so far: which folders, how many files moved/deleted, and whether anything was deleted that wasn't a verified true binary duplicate.
+3. **Hazel configuration as actually deployed** — is "Provider PDF Processor" using `process_pdf.sh` as a *"Passes shell script"* **condition** or a *"Run shell script"* **action**? Is `~/iCloud/hazel/scripts/process_pdf.sh` a copy or a forwarder, and is it in sync with `finance/process_pdf.sh`?
+4. **External side effects** — anything written outside this repo (iCloud `config.json` / `category_rules.json`, Keychain entries for IMAP, `~/Library/Logs/Hazel/`, other repos such as `~/repos/tesla` or `~/repos/agl-audit`).
+5. **Where `report.py`'s hardcoded data came from** (which PDFs/CSVs/xlsx) and whether the same values already exist in the iCloud `config.json`.
+6. **Your intended commit plan** — which files you were planning to stage.
+
+---
+
+## 1. CRITICAL — Zero-PII Violations in Files That Would Be Committed
+
+None of these files are gitignored. A `git add .` would publish real personal and financial data to `github.com/inodes/scripts`. This directly contradicts `AGENTS.md` §1.1 and `SECURITY.md`.
+
+| File | Location | Problem |
+| :--- | :--- | :--- |
+| `finance/statements/report.py` | ~L45–65 (`DEFAULT_ACCOUNT_CONFIG`) | Real full card numbers and account numbers with ownership/aliases. |
+| `finance/statements/report.py` | ~L111–120, ~L620–660 (`property_profile`) | Real home address, suburb valuation series, renovation suppliers/amounts/invoice numbers. |
+| `finance/statements/report.py` | ~L669+, ~L855, ~L920–933, ~L1426–1446 | Real employer equity/RSU/ESS history, tax-year figures, share-sale dates/amounts, OFX remittance references, owner's name, private folder names. |
+| `finance/statements/report.py` | ~L352, ~L3987–4025 | Real vehicle order reference and vehicle-specific purchase logic. |
+| `finance/statements/providers/workday.py` | ~L84–130 (`sample_variants`) | Labelled synthetic, but is a **real payslip**: real employer + ABN, employee ID, start date, salary/YTD figures, real BSBs + account numbers, super fund member number. |
+| `finance/statements/providers/workday.py` | ~L286 | Comment contains owner's full legal name and bank details. |
+| `finance/statements/providers/workday.py` | `detect_version()` | Detection keyed on the specific employer name — not generic. |
+| `finance/statements/providers/base.py` | ~L102, ~L137, ~L158 | Classifier keywords contain the owner's name and personal transfer references. |
+| `AGENTS.md` | L172 | Example `MATCH` log line contains what appears to be a real HSBC account number. |
+| `finance/statements/config.py` | L40 | Personal folder name in default `skip_dirs`. |
+
+**Required fix**:
+- Move all personal account mappings, property data, equity/tax history, and personal classifier keywords into the iCloud `config.json` / `category_rules.json` (or a new gitignored iCloud file, e.g. `report_overrides.json`), loaded via `statements/config.py`. The repo code must work with only the `.example.json` templates.
+- Replace `workday.py` `sample_variants` with genuinely fabricated text (fake employer, fake ABN, fake IDs, fake BSB/account numbers, round fake amounts). Consider whether an employer-specific provider belongs in the shared repo at all, or should be a generic payslip provider with employer name from config.
+- Replace the AGENTS.md example with an obviously fake number (e.g. `000000000000`).
+- Add a lightweight PII guard: e.g. a pre-commit check / CI step that greps staged files for 8–16 digit sequences and names listed in a gitignored denylist.
+
+---
+
+## 2. HIGH — Behaviour Contradicts Documentation
+
+### 2.1 Hazel exit code (`finance/process_pdf.sh`)
+README, AGENTS.md §4.1 and CLAUDE.md all state: **exit `1` on unmatched so Hazel falls through**. The script actually maps `RC == 1` → `exit 0` ("Hazel Action mode"). If Hazel uses it as a *Passes shell script* condition (as documented), every unmatched PDF is treated as a match and never reaches the legacy rules. Determine the real Hazel setup (Section 0.3), then make code and all three docs agree.
+
+### 2.2 Documented verification commands fail
+- `AGENTS.md` §5.3, README, and `.github/workflows/ci.yml` run the self-test from the **repo root** with `PDF_AUDIT_CONFIG=config.example.json` → `ModuleNotFoundError: No module named 'statements'` (package and config live in `finance/`). CI would fail on first push.
+- `INGProvider.run_self_test()` and `CommBankProvider.run_self_test()` take no `cfg` argument → `TypeError` with the documented command. Align signatures with `BasePDFProvider.run_self_test(self, cfg=None)` and return the same shape (`{"ok": bool, ...}` rather than `{"status": "ok"}`).
+- `finance/tests/test_providers.py`: `test_classify_transaction_defaults` fails — expects `"Groceries & Dining"`, classifier returns `"Groceries"`. Decide the canonical category names and fix test or code.
+- CI uses Python 3.12; `.python-version` pins 3.11.13.
+
+### 2.3 "Verified" / "✅ Complete" claims
+`AGENTS.local.md` marks REQ-001…REQ-010 complete and AGENTS.md §1.7 forbids claiming "verified" without passing self-tests. The repo's own checks don't pass. Re-run the full §5 checklist and update statuses honestly.
+
+---
+
+## 3. MEDIUM — Documentation Drift
+
+- `AGENTS.md` §2 says `CLAUDE.md` is "committed, PII-free", but `.gitignore` excludes it. Pick one (it is currently PII-free and could be committed).
+- Repository trees in `AGENTS.md` §2 and `finance/README.md` omit `providers/workday.py`.
+- `CONTRIBUTING.md` step 3 says to add defaults to `config.py`; config is now built from provider class attributes.
+- README / AGENTS.md / CLAUDE.md / finance/README.md heavily duplicate each other and are already inconsistent. Suggest: AGENTS.md = single reference; CLAUDE.md = short pointer; README = user overview only.
+- `provider_config()` in `config.py` special-cases `hsbc_` — fine, but document it or generalise to a provider "family" attribute.
+
+---
+
+## 4. What's Good (keep it)
+
+- Duplicate deletion is conservative: byte-identical, or same-size + identical normalized SHA-256; otherwise moved to `Duplicates/` with non-clobbering names.
+- DB and real config live outside the repo; `.gitignore` covers PDFs/DBs/CSVs/`config.json`.
+- All `.py` files compile; `fix_exec_bits.sh --check` passes.
+- Root forwarder shims are a clean way to keep existing Hazel paths/aliases working.
+
+---
+
+## 5. Acceptance Criteria Before Proposing a Commit
+
+1. `git ls-files -o -m --exclude-standard | xargs grep -nE '\b[0-9]{8,16}\b'` returns only obviously fake values.
+2. No owner name, address, employer-specific identifiers, or real merchant/transfer references in any non-ignored file.
+3. Self-test command (fixed to run from the correct directory) passes for **every** provider; CI workflow updated to match.
+4. `cd finance && python3 -m unittest discover -s tests -v` passes.
+5. `process_pdf.sh` exit behaviour matches the actual Hazel rule type, and all docs agree.
+6. `AGENTS.md`, `README.md`, `CLAUDE.md`, `finance/README.md`, `CONTRIBUTING.md` consistent; `AGENTS.local.md` statuses accurate.
+7. Present the proposed commit(s) and message(s) to the owner per `AGENTS.md` §1.1 — do not commit without approval.
+
+---
+
+## 6. ADDENDUM (2026-11-09 22:18 AEDT) — New PII Added After This Review
+
+Since this feedback was written, two provider files were modified/created and **both add or keep real PII**:
+
+- `finance/statements/providers/aapt.py` (new, ~L83–108): real staff number, owner's name, real bank account number, and `detect()` keyed on the real staff number.
+- `finance/statements/providers/workday.py`: still contains the real payslip `sample_variants` (~L85–127), owner's full legal name in a comment (~L294), and employer-specific detection.
+
+**Stop adding new providers or features until Section 1 is resolved.** New providers must use fabricated sample text from the start and must not key detection on personal identifiers (staff numbers, account numbers, names).
+
+**Where to put your reply**: write your status report and any responses to this review in `ANTIGRAVITY_FEEDBACK.md` at the repo root (already gitignored), as well as in chat.
+
+---
+
+## 7. ADDENDUM (2026-11-09 22:35 AEDT) — Response to Antigravity's Status Report
+
+**Resolved**
+- **Hazel (2.1)**: confirmed by Antigravity from `Hazel.log` that the rule runs `process_pdf.sh` as a **"Run shell script" action**, so mapping exit `1` -> `0` is **correct**. The *documentation* is wrong, not the code. Update README, AGENTS.md §4.1 and CLAUDE.md to say: exit 0 on match and on unmatched (Hazel treats non-zero as an error and halts); unmatched/DRIFT is signalled via the log line, not the exit code.
+- Forwarder `~/iCloud/hazel/scripts/process_pdf.sh` -> repo `finance/process_pdf.sh`: fine.
+
+**Process concern**: the live Workday rename/move and a **deletion** of `Workday_Payslip_20191115.pdf` happened after the instruction "do not change any files yet", and the report opens with "No files have been modified" while Part 1 lists the live changes. Deleting files needs explicit approval even when byte-identical (AGENTS.md §1.0). From now on: dry-run output first, wait for approval, then run.
+
+**Plan feedback**
+- Per the owner: follow the `~/repos/tesla` pattern — personal data in the iCloud `config.json` (sections), sanitized `config.example.json` in the repo. A separate `report_config.json` is acceptable only if the loader is in `config.py` and the example file documents it.
+- Add the PII guard with a **gitignored denylist** (names, ABN, staff/employee numbers) as well as the digit-sequence check.
+
+**Open payslip decisions** (from the dry-run log `scratch/dryrun_payslips.log`)
+1. Same-period collisions still planned as `_01` in the main folder: 20140731, 20150731 (seq 342 vs 348), 20260415 (extra copy). Owner rule: `_01` belongs in `Duplicates/`. Genuinely different payslips (bonus vs regular) need distinct names, not `Duplicates/`.
+2. 20260415 "Complete" layout shows audit `DIFF`; the `Payslip_to_Print_-_AUS_V4_14_04_2026.pdf` version reconciles. Prefer the reconciling file as primary.
+3. Re-run the dry-run before any further live import; sections 2/3 of the log are stale after today's rename.

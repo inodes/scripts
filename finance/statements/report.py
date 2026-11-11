@@ -81,7 +81,7 @@ def detect_account_ownership(account_no: str, account_name: str, doc_type: str, 
 
 
 def detect_account_type(account_name: str, doc_type: str) -> str:
-    """Categorize account type: loan, offset, credit_card, or transaction."""
+    """Categorise account type: loan, offset, credit_card, or transaction."""
     name_low = account_name.lower()
     dt_low = doc_type.lower()
     if "loan" in name_low or "mortgage" in name_low or "loan" in dt_low:
@@ -1118,7 +1118,7 @@ def render_equity_tab_html(s: Dict[str, Any]) -> str:
           <div>
             <div class="card-title" style="margin-bottom: 2px;">📈 Interactive Financial Year CGT &amp; Tax Explorer (FY2016 – FY2026)</div>
             <div style="font-size: 0.82rem; color: var(--text-muted);">
-              Analyze capital gains, losses, statutory ESS income across all 11 tax years, and model tax liability under current vs proposed CGT discount rules.
+              Analyse capital gains, losses, statutory ESS income across all 11 tax years, and model tax liability under current vs proposed CGT discount rules.
             </div>
           </div>
           <!-- Currency Toggle -->
@@ -2651,19 +2651,29 @@ def render_html_report(data: Dict[str, Any]) -> str:
         <!-- Merchant Intelligence Correlation Card -->
         <div id="merchant-intel-card" style="display: none; margin-bottom: 16px;"></div>
 
+        <!-- Pagination Controls (top) -->
+        <div class="pagination" style="margin-bottom: 8px;">
+          <span id="tx-pagination-info-top">Showing 0-0 of 0</span>
+          <div>
+            <button class="btn-sm" id="tx-prev-page-top">&lt; Previous</button>
+            <span id="tx-current-page-top" style="margin: 0 8px;">1 / 1</span>
+            <button class="btn-sm" id="tx-next-page-top">Next &gt;</button>
+          </div>
+        </div>
+
         <!-- Transactions Table -->
         <div class="table-container">
           <table id="transactions-table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Account</th>
-                <th>Description</th>
-                <th>Category</th>
-                <th class="num">Outflow (Debit)</th>
-                <th class="num">Inflow (Credit)</th>
-                <th class="num">Net Amount</th>
-                <th class="num">Balance</th>
+                <th data-sort="date" style="cursor: pointer;" title="Click to sort">Date<span class="sort-ind"></span></th>
+                <th data-sort="account_no" style="cursor: pointer;" title="Click to sort">Account<span class="sort-ind"></span></th>
+                <th data-sort="desc" style="cursor: pointer;" title="Click to sort">Description<span class="sort-ind"></span></th>
+                <th data-sort="category" style="cursor: pointer;" title="Click to sort">Category<span class="sort-ind"></span></th>
+                <th class="num" data-sort="debit" style="cursor: pointer;" title="Click to sort">Outflow (Debit)<span class="sort-ind"></span></th>
+                <th class="num" data-sort="credit" style="cursor: pointer;" title="Click to sort">Inflow (Credit)<span class="sort-ind"></span></th>
+                <th class="num" data-sort="amount" style="cursor: pointer;" title="Click to sort">Net Amount<span class="sort-ind"></span></th>
+                <th class="num" data-sort="balance" style="cursor: pointer;" title="Click to sort">Balance<span class="sort-ind"></span></th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -2768,33 +2778,6 @@ def render_html_report(data: Dict[str, Any]) -> str:
           </table>
         </div>
       </div>
-
-      <!-- Statement Files Table -->
-      <div class="card">
-        <div class="card-title">Statement Files Ingested</div>
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Statement File</th>
-                <th>Provider</th>
-                <th>Period Start</th>
-                <th>Period End</th>
-                <th>Reconciled</th>
-              </tr>
-            </thead>
-            <tbody>
-              {''.join(f'''<tr>
-                <td style="font-family: monospace; font-size: 0.82rem;">{s['file']}</td>
-                <td><span class="tag tag-solo">{s['provider']}</span></td>
-                <td>{s['period_start'] or '-'}</td>
-                <td>{s['period_end'] or '-'}</td>
-                <td><span class="tag tag-ok">✓ Reconciled</span></td>
-              </tr>''' for s in data['statements'])}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
 
   </main>
@@ -2818,6 +2801,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
       let coverageBank = 'all';
       let coverageRange = 'recent'; // 'recent' (2019-2026) | 'all' (2007-2026)
       let txPage = 1;
+      let txSort = {{ key: 'date', dir: -1 }};
       const txPerPage = 50;
       const txPageSize = 50;
       let txFilterType = 'all';   // 'all', 'regular', 'uncat'
@@ -3630,7 +3614,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
             const amtCls = t.amount < 0 ? 'text-red' : (t.amount > 0 ? 'text-green' : '');
             const sign = t.amount > 0 ? '+' : '';
             tr.innerHTML = `
-              <td><strong>${{t.date}}</strong></td>
+              <td><strong>${{fmtAuDate(t.date)}}</strong></td>
               <td><code>${{t.account_no}}</code></td>
               <td title="${{t.desc}}">${{t.desc}}</td>
               <td><span class="tag tag-solo">${{t.category}}</span></td>
@@ -4085,6 +4069,67 @@ def render_html_report(data: Dict[str, Any]) -> str:
       // =============================================================
       // RENDER TRANSACTIONS TAB WITH FILTERING & PAGINATION
       // =============================================================
+      const AU_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      function fmtAuDate(iso) {{
+        const m = /^(\d{{4}})-(\d{{2}})-(\d{{2}})/.exec(iso || '');
+        return m ? `${{m[3]}} ${{AU_MONTHS[+m[2] - 1]}} ${{m[1]}}` : (iso || '');
+      }}
+
+      // Suggest a category rule for an uncategorised transaction. The report is a static file, so it
+      // cannot save anything: it builds the exact line to paste into category_rules.json.
+      function suggestKeyword(desc) {{
+        const words = String(desc || '').toUpperCase().replace(/[^A-Z&.\- ]+/g, ' ').split(/\s+/)
+          .filter(w => w.length > 2 && !['THE', 'PTY', 'LTD', 'VISA', 'PURCHASE', 'CARD', 'AUS', 'AU', 'NSW'].includes(w));
+        return words.slice(0, 2).join(' ');
+      }}
+      function quickCategorise(i) {{
+        const t = (window.__txView || [])[i];
+        if (!t) return;
+        let box = document.getElementById('quick-cat-box');
+        if (!box) {{
+          box = document.createElement('div');
+          box.id = 'quick-cat-box';
+          box.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; display:flex; align-items:center; justify-content:center; padding:16px;';
+          document.body.appendChild(box);
+        }}
+        const cats = Object.keys(DATA.categories_all_time || {{}}).filter(c => c !== 'Uncategorised').sort((a, b) => a.localeCompare(b));
+        const esc = x => String(x).replace(/[&<>"]/g, c => ({{'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}}[c]));
+        const sameKw = suggestKeyword(t.desc);
+        const matches = kw => (DATA.transactions || []).filter(x => kw && (x.desc || '').toUpperCase().includes(kw) && x.category === 'Uncategorised').length;
+        box.innerHTML = `
+          <div class="card" style="max-width: 560px; width: 100%;">
+            <div class="card-title">Categorise this merchant</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 10px;">${{esc(t.desc)}}</div>
+            <label style="font-size: 0.8rem;">Keyword (matches any description containing it)</label>
+            <input type="text" class="search-input" id="qc-kw" value="${{esc(sameKw)}}" style="width: 100%; margin-bottom: 8px;">
+            <label style="font-size: 0.8rem;">Category</label>
+            <input type="text" class="search-input" id="qc-cat" list="qc-cats" placeholder="Choose or type a new category" style="width: 100%; margin-bottom: 8px;">
+            <datalist id="qc-cats">${{cats.map(c => `<option value="${{esc(c)}}">`).join('')}}</datalist>
+            <div id="qc-count" style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;"></div>
+            <textarea id="qc-out" readonly style="width: 100%; height: 54px; font-family: monospace; font-size: 0.82rem;"></textarea>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin: 6px 0 10px;">Paste this line into <code>category_rules.json</code> (next to config.json), then regenerate the report.</div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+              <button class="btn-sm" id="qc-copy">Copy rule</button>
+              <button class="btn-sm" id="qc-close">Close</button>
+            </div>
+          </div>`;
+        const refresh = () => {{
+          const kw = document.getElementById('qc-kw').value.trim().toUpperCase();
+          const cat = document.getElementById('qc-cat').value.trim();
+          document.getElementById('qc-count').textContent = kw ? `Would categorise ${{matches(kw)}} uncategorised transactions.` : '';
+          document.getElementById('qc-out').value = kw && cat ? `${{JSON.stringify(kw)}}: ${{JSON.stringify(cat)}},` : '';
+        }};
+        ['qc-kw', 'qc-cat'].forEach(id => document.getElementById(id).addEventListener('input', refresh));
+        document.getElementById('qc-close').onclick = () => box.remove();
+        document.getElementById('qc-copy').onclick = () => {{
+          const el = document.getElementById('qc-out');
+          el.select();
+          try {{ navigator.clipboard.writeText(el.value); }} catch (e) {{ document.execCommand('copy'); }}
+        }};
+        refresh();
+      }}
+      window.quickCategorise = quickCategorise;
+
       function renderTransactionsTab() {{
         // Populate account filter dropdown
         const acctSelect = document.getElementById('tx-account-filter');
@@ -4100,7 +4145,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
         // Populate category dropdown
         const catSelect = document.getElementById('tx-category-filter');
         if (catSelect && catSelect.options.length <= 1) {{
-          const cats = Object.keys(DATA.category_totals_all_time || {{}}).sort();
+          const cats = Object.keys(DATA.categories_all_time || {{}}).sort((a, b) => a.localeCompare(b));
           cats.forEach(c => {{
             const opt = document.createElement('option');
             opt.value = c;
@@ -4151,6 +4196,18 @@ def render_html_report(data: Dict[str, Any]) -> str:
           return true;
         }});
 
+        // Sort (click a column header; click again to reverse)
+        const sk = txSort.key, sd = txSort.dir;
+        const numeric = ['debit', 'credit', 'amount', 'balance'].includes(sk);
+        filtered.sort((a, b) => {{
+          const x = a[sk], y = b[sk];
+          const c = numeric ? ((x || 0) - (y || 0)) : String(x || '').localeCompare(String(y || ''));
+          return c * sd || String(a.date).localeCompare(String(b.date)) * sd;
+        }});
+        document.querySelectorAll('#transactions-table th[data-sort]').forEach(th => {{
+          th.querySelector('.sort-ind').textContent = th.dataset.sort === sk ? (sd > 0 ? ' \u25B2' : ' \u25BC') : '';
+        }});
+
         // Render merchant / query intelligence card
         renderMerchantIntelligence(filtered, query, activeMerchant);
 
@@ -4167,6 +4224,15 @@ def render_html_report(data: Dict[str, Any]) -> str:
             ? `Showing ${{startIdx + 1}}–${{Math.min(filtered.length, startIdx + txPageSize)}} of ${{filtered.length}} transactions`
             : `Showing 0 of 0 transactions`;
         }}
+
+        const pagInfoTop = document.getElementById('tx-pagination-info-top');
+        if (pagInfoTop && pagInfo) pagInfoTop.textContent = pagInfo.textContent;
+        const curTop = document.getElementById('tx-current-page-top');
+        if (curTop) curTop.textContent = `${{txPage}} / ${{totalPages}}`;
+        const prevTop = document.getElementById('tx-prev-page-top');
+        if (prevTop) prevTop.disabled = txPage <= 1;
+        const nextTop = document.getElementById('tx-next-page-top');
+        if (nextTop) nextTop.disabled = txPage >= totalPages;
 
         const curPageSpan = document.getElementById('tx-current-page');
         if (curPageSpan) {{
@@ -4188,7 +4254,8 @@ def render_html_report(data: Dict[str, Any]) -> str:
           return;
         }}
 
-        pageItems.forEach(t => {{
+        window.__txView = filtered;
+        pageItems.forEach((t, rowIdx) => {{
           const tr = document.createElement('tr');
           const amtCls = t.amount < 0 ? 'text-red' : (t.amount > 0 ? 'text-green' : '');
           const sign = t.amount > 0 ? '+' : '';
@@ -4197,11 +4264,11 @@ def render_html_report(data: Dict[str, Any]) -> str:
           if (t.is_regular) {{
             regPill = ' <span class="tag" style="background:rgba(59,130,246,0.15); color:#60a5fa; font-size:0.7rem;">🔄 Regular</span>';
           }} else if (t.category === 'Uncategorised') {{
-            regPill = ' <span class="tag" style="background:rgba(239,68,68,0.15); color:#f87171; font-size:0.7rem;">⚠️ Review</span>';
+            regPill = ' <span class="tag" style="background:rgba(239,68,68,0.15); color:#f87171; font-size:0.7rem; cursor: pointer;" title="Suggest a rule for this merchant" onclick="quickCategorise(' + (startIdx + rowIdx) + ')">⚠️ Categorise</span>';
           }}
 
           tr.innerHTML = `
-            <td><strong>${{t.date}}</strong></td>
+            <td><strong>${{fmtAuDate(t.date)}}</strong></td>
             <td><code>${{t.account_no}}</code></td>
             <td title="${{t.desc}}">${{t.desc.length > 55 ? t.desc.slice(0, 52) + '...' : t.desc}}</td>
             <td><span class="tag tag-solo" style="cursor: pointer;" title="Click to filter by category" onclick="filterByThisCategory('${{t.category}}')">${{t.category}}</span>${{regPill}}</td>
@@ -6941,9 +7008,13 @@ def render_html_report(data: Dict[str, Any]) -> str:
       // Transactions Explorer Filter & Pagination Listeners
       const txSearchInput = document.getElementById('tx-search');
       if (txSearchInput) {{
+        let txSearchTimer = null;
         txSearchInput.addEventListener('input', () => {{
-          txPage = 1;
-          renderTransactionsTab();
+          clearTimeout(txSearchTimer);
+          txSearchTimer = setTimeout(() => {{
+            txPage = 1;
+            renderTransactionsTab();
+          }}, 150);
         }});
       }}
 
@@ -6971,23 +7042,30 @@ def render_html_report(data: Dict[str, Any]) -> str:
         }});
       }}
 
-      const txPrevBtn = document.getElementById('tx-prev-page');
-      if (txPrevBtn) {{
-        txPrevBtn.addEventListener('click', () => {{
+      ['tx-prev-page', 'tx-prev-page-top'].forEach(id => {{
+        document.getElementById(id)?.addEventListener('click', () => {{
           if (txPage > 1) {{
             txPage--;
             renderTransactionsTab();
           }}
         }});
-      }}
+      }});
 
-      const txNextBtn = document.getElementById('tx-next-page');
-      if (txNextBtn) {{
-        txNextBtn.addEventListener('click', () => {{
+      ['tx-next-page', 'tx-next-page-top'].forEach(id => {{
+        document.getElementById(id)?.addEventListener('click', () => {{
           txPage++;
           renderTransactionsTab();
         }});
-      }}
+      }});
+
+      document.querySelectorAll('#transactions-table th[data-sort]').forEach(th => {{
+        th.addEventListener('click', () => {{
+          const k = th.dataset.sort;
+          txSort = {{ key: k, dir: txSort.key === k ? -txSort.dir : (['date', 'debit', 'credit', 'amount', 'balance'].includes(k) ? -1 : 1) }};
+          txPage = 1;
+          renderTransactionsTab();
+        }});
+      }});
 
       // Initial boot
       refreshDashboard();

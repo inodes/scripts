@@ -63,7 +63,7 @@ finance/pdf_audit.py transactions --category Groceries --limit 25
 Issuers frequently tweak or redesign their PDF templates over time (for example, a 2019/2021 statement layout vs. a 2026 layout). Rather than creating separate providers per year, a single provider class in [`statements/providers/`](statements/providers) handles all historical and current formats:
 
 - **`format_versions`**: Lists all supported layout versions (e.g. `["v2019_classic", "v2025_dual_ccy"]`).
-- **`detect_version(text, pdf_path)`**: Returns which version tag a PDF matches (or `None`), allowing `extract()` to apply version-specific regexes while normalizing into the same filename template and target directory.
+- **`detect_version(text, pdf_path)`**: Returns which version tag a PDF matches (or `None`), allowing `extract()` to apply version-specific regexes while normalising into the same filename template and target directory.
 - **`sample_variants`**: Stores synthetic, PII-free text fixtures for **every** version in `format_versions`. Calling `provider.run_self_test()` automatically tests every historical version so adding a new 2026/2027 layout never breaks older 2019/2021 PDFs.
 - **Format Drift Detection (`DRIFT`)**: When a PDF's download domain (`kMDItemWhereFroms`) matches a provider's `source_domains`, but `detect()` fails because the issuer redesigned their PDF, `process_pdf.sh` logs a `DRIFT` entry to `~/Library/Logs/Hazel/process_pdf.log` so `finance/audit_hazel_logs.py` immediately highlights which existing provider needs a new format version.
 

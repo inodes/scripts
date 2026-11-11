@@ -104,7 +104,7 @@ _RE_PDF_DYNAMIC_STAMPS = re.compile(
 
 
 def normalized_pdf_sha256(path: str) -> str:
-    """Compute SHA-256 of PDF bytes after normalizing dynamic download-time stamps
+    """Compute SHA-256 of PDF bytes after normalising dynamic download-time stamps
     (/CreationDate, /ModDate, and trailer /ID)."""
     with open(path, "rb") as f:
         raw = f.read()

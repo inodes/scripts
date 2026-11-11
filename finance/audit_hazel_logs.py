@@ -2,7 +2,7 @@
 """audit_hazel_logs.py - Audit Hazel & process_pdf logs to discover unmatched PDFs and scaffold new providers.
 
 Reads ~/Library/Logs/Hazel/process_pdf.log and ~/Library/Logs/Hazel/Hazel.log to:
-  1. Summarize matched vs unmatched (failed/skipped) PDFs processed by Hazel.
+  1. Summarise matched vs unmatched (failed/skipped) PDFs processed by Hazel.
   2. Group unmatched PDFs by download source domain (kMDItemWhereFroms), filename prefix,
      and detected document headers.
   3. Inspect candidate unmatched PDFs (--sample / --scaffold) to show their download URL,
@@ -53,7 +53,7 @@ def extract_domain(url: str) -> str:
 
 def filename_pattern(fname: str) -> str:
     stem = os.path.splitext(fname)[0]
-    # Normalize digits and hashes into pattern tokens
+    # normalise digits and hashes into pattern tokens
     p = re.sub(r"\b\d{8}\b", "<YYYYMMDD>", stem)
     p = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", "<YYYY-MM-DD>", p)
     p = re.sub(r"\b[0-9A-Fa-f]{16,}\b", "<HEX>", p)

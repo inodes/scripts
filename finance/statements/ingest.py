@@ -108,7 +108,7 @@ def is_true_binary_duplicate(src_path: str, dest_path: str) -> bool:
 
 
 def same_pdf_content(src_path: str, dest_path: str, db=None) -> bool:
-    """Return True if two PDF files are true binary duplicates OR have identical extracted text (exact or whitespace-normalized)."""
+    """Return True if two PDF files are true binary duplicates OR have identical extracted text (exact or whitespace-normalised)."""
     if is_true_binary_duplicate(src_path, dest_path):
         return True
     try:
