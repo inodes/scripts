@@ -111,7 +111,8 @@ acquire_lock() {
     local waited=0 age now mtime
     while ! mkdir "$LOCK_DIR" 2>/dev/null; do
         now=$(date +%s)
-        mtime=$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo "$now")
+        mtime=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo "$now")  # GNU first: BSD stat -f means something else on Linux
+        [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$now"
         age=$(( now - mtime ))
         if (( age > LOCK_STALE_SECS )); then
             rmdir "$LOCK_DIR" 2>/dev/null || true

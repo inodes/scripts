@@ -5,11 +5,20 @@ Formats:
                         (header "Apple Store, <City>" or "Apple <Location>", "*R##########*").
   2. v_online_classic   Online store tax invoice ("Reference No.", "Reference Date", "Weborder Number").
   3. v_online_receipt   Online store "Invoice Receipt" ("Invoice Number / Invoice Date", order W#########).
+  4. v_tax_invoice      Apple Pty Limited "Tax Invoice" PDF (2021+): "Tax Invoice Number", MM/DD/YYYY date.
+  Email receipts (rendered from the email, not original Apple PDFs; filed in {invoices}/Apple/Email_Receipts):
+  5. v_email_itunes     "Billed To" + Order ID/Number + Issue Date + Order Total (iTunes / App Store).
+  6. v_email_order      Store order confirmation ("Ordered on", "Order Number", "Order Total").
+  7. v_email_applecare  AppleCare+ "Tax Invoice / Receipt & Renewal Notice".
+  8. v_email_adjust     "Adjustment Note" (cancellation / credit).
+  9. v_email_appstore   "Tax Invoice" with APPLE ID / DATE / ORDER ID / DOCUMENT NO. / TOTAL (subscriptions, 2021-2024).
+ 10. v_email_appstore_new  "Tax Invoice", then date, "Order ID:", "Document:", "Account Balance" (2025+).
 
 Standard filenames (all under {invoices}/Apple):
   Apple_Store_Receipt_{YYYYMMDD}_{R-number}.pdf   (Apple_Store_Refund_... for a refund receipt)
   Apple_Invoice_{YYYYMMDD}_{reference or invoice number}.pdf
   Apple_Credit_Note_{YYYYMMDD}_{reference}.pdf
+Email receipts: Apple_Receipt_ / Apple_Order_Confirmation_ / Apple_Adjustment_Note_{YYYYMMDD}_{id}.pdf
 """
 import datetime
 import os
@@ -49,6 +58,24 @@ def _month_date(month: str, day: str, year: str) -> Optional[datetime.date]:
         return datetime.date(int(year), mo, int(day)) if mo else None
     except ValueError:
         return None
+
+
+EMAIL_SUBDIR = "Email_Receipts"
+_DMY = r"(\d{1,2})/(\d{1,2})/(\d{2,4})"
+
+
+def _dmy(m) -> Optional[datetime.date]:
+    y = int(m.group(3)) + (2000 if len(m.group(3)) == 2 else 0)
+    try:
+        return datetime.date(y, int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+
+
+def _amount(t: str, pattern: str) -> Optional[Decimal]:
+    """Dollar amount after a label; tolerates extractors that split digits ("$13.9 9")."""
+    m = re.search(pattern + r"\s*-?\s*A?\$\s*(\d[\d,\s]*?)\s*\.\s*(\d)\s*(\d)\b", t)
+    return Decimal(re.sub(r"[,\s]", "", m.group(1)) + "." + m.group(2) + m.group(3)) if m else None
 
 
 class AppleProvider(BasePDFProvider):
@@ -96,6 +123,37 @@ Weborder Number: W000000001
  Special  90.00  9.00  99.00
  Instructions  Total Value (Excl.GST)  Total GST  Total Price (Incl. GST)
         """,
+        "v_email_appstore": """
+Tax Invoice
+
+APPLE ID
+sample@example.com BILLED TO
+Card .... 0000
+Sample Person
+DATE
+02 Jun. 2024
+ORDER ID
+ML0000AAAA
+DOCUMENT NO.
+000000000001
+Sample Service
+Monthly
+$14.9 9
+TOTAL $14.9 9
+Apple Pty Ltd. Total Includes GST.
+        """,
+        "v_email_appstore_new": """
+Tax Invoice
+10 November 2025
+Order ID:ML0000BBBB
+Document:000000000002
+Apple Account:sample@example.com
+Sample Service (Monthly)
+$44.99
+Billing and Payment
+Sample Person
+Account Balance $44.99
+        """,
         "v_online_receipt": """
 Apple Store
 Invoice Receipt
@@ -114,6 +172,22 @@ For a total of A$1,999.00
     def detect_version(self, text: str, pdf_path: str = "") -> Optional[str]:
         # Text extractors differ in how they order columns, so match on labels rather than layout.
         t = _clean(text)
+        if re.search(r"Tax Invoice Number:\s*\S+", t) and "Tax Invoice Date:" in t and "Apple Pty" in t:
+            return "v_tax_invoice"
+        if re.search(r"(Tax Invoice|Receipt) & Renewal Notice", t) and re.search(r"Document:\s*\d", t):
+            return "v_email_applecare"
+        if re.search(r"Adjustment Note", t[:300]) and re.search(r"DOCUMENT NO\.\s*\d", t):
+            return "v_email_adjust"
+        if (re.match(r"\s*Tax Invoice\s", t) and re.search(r"ORDER ID", t) and re.search(r"DOCUMENT NO\.\s*\d", t)
+                and re.search(r"(?m)^DATE\b", t)):
+            return "v_email_appstore"
+        if re.match(r"\s*Tax Invoice\s", t) and re.search(r"Order ID:\s*[A-Z0-9]+", t) and re.search(r"Document:\s*\d", t):
+            return "v_email_appstore_new"
+        if re.search(r"Ordered on:\s*" + _DMY, t) and re.search(r"Order Number:\s*[A-Z]?\d+", t):
+            return "v_email_order"
+        if ("Billed To" in t[:200] and re.search(r"Order (Number|ID):\s*[A-Z0-9]+", t)
+                and re.search(r"Issue Date:\s*" + _DMY, t)):
+            return "v_email_itunes"
         if "Invoice Receipt" in t and "Invoice Number" in t and "Invoice Date" in t and "Apple" in t:
             return "v_online_receipt"
         if ("Reference No." in t and "Reference Date" in t and _classic_ref(t)
@@ -183,6 +257,77 @@ For a total of A$1,999.00
             data["reconciled"] = total > 0
             data["filename_stem"] = "Apple_Invoice"
 
+        elif ver == "v_tax_invoice":
+            ref = re.search(r"Tax Invoice Number:\s*([A-Z]{2}\d{8}|\d{10})\b", t)
+            ref = ref.group(1) if ref else None
+            m = re.search(r"Tax Invoice Date:\s*(\d{2})/(\d{2})/(\d{4})", t)  # US order MM/DD/YYYY
+            if m:
+                try:
+                    issue = datetime.date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+                except ValueError:
+                    issue = None
+            # amounts here have no "$" sign, so read them directly
+            def _aud(label):
+                mm = re.search(label + r"\s*AUD\s*(-?[\d,]+\.\d{2})", t)
+                return Decimal(mm.group(1).replace(",", "")) if mm else None
+            ex, gst, inc = _aud(r"Total Value \(Excl\.GST\)"), _aud(r"(?<!\()GST"), _aud(r"Total Value \(Incl\.GST\)")
+            total = inc if inc is not None else total
+            data["reconciled"] = None not in (ex, gst, inc) and abs(ex + gst - inc) <= Decimal("0.02")
+            data["filename_stem"] = "Apple_Invoice"
+            if inc is not None and inc < 0:
+                data["filename_stem"] = "Apple_Credit_Note"
+        elif ver == "v_email_itunes":
+            m = re.search(r"Order (?:Number|ID):\s*([A-Z0-9]+)", t)
+            ref = m.group(1) if m else None
+            m = re.search(r"Issue Date:\s*" + _DMY, t)
+            issue = _dmy(m) if m else None
+            tot = _amount(t, r"Order Total:")
+            total = tot if tot is not None else total
+            data["reconciled"] = tot is not None
+            data["filename_stem"] = "Apple_Receipt"
+            data["email_receipt"] = True
+        elif ver == "v_email_order":
+            m = re.search(r"Order Number:\s*([A-Z]?\d+)", t)
+            ref = m.group(1) if m else None
+            m = re.search(r"Ordered on:\s*" + _DMY, t)
+            issue = _dmy(m) if m else None
+            tot = _amount(t, r"Order Total")
+            total = tot if tot is not None else total
+            data["reconciled"] = tot is not None
+            data["filename_stem"] = "Apple_Order_Confirmation"
+            data["email_receipt"] = True
+        elif ver in ("v_email_appstore", "v_email_appstore_new"):
+            if ver == "v_email_appstore":
+                m = re.search(r"DOCUMENT NO\.\s*(\d+)", t)
+                dm = re.search(r"(?m)^DATE\s+(\d{1,2}) ([A-Z][a-z]{2,8})\.? (20\d\d)", t)
+                tot = _amount(t, r"TOTAL")
+            else:
+                m = re.search(r"Document:\s*(\d+)", t)
+                dm = re.search(r"(\d{1,2}) ([A-Z][a-z]{2,8})\.? (20\d\d)", t)
+                tot = _amount(t, r"Account Balance") or _amount(t, r"")
+            ref = m.group(1) if m else None
+            issue = _month_date(dm.group(2), dm.group(1), dm.group(3)) if dm else None
+            total = tot if tot is not None else total
+            data["reconciled"] = tot is not None
+            data["filename_stem"] = "Apple_Receipt"
+            data["email_receipt"] = True
+        elif ver in ("v_email_applecare", "v_email_adjust"):
+            m = re.search(r"Document(?: NO\.|:)?\s*:?\s*(\d{8,})", t) or re.search(r"DOCUMENT NO\.\s*(\d+)", t)
+            ref = m.group(1) if m else None
+            m = re.search(r"(\d{1,2}) ([A-Z][a-z]{2,8})\.? (20\d\d)", t)
+            issue = _month_date(m.group(2), m.group(1), m.group(3)) if m else None
+            if ver == "v_email_applecare":
+                tot = _amount(t, r"")
+                data["filename_stem"] = "Apple_Receipt"
+            else:
+                tot = _amount(t, r"TOTAL")
+                if tot is not None:
+                    tot = -tot
+                data["filename_stem"] = "Apple_Adjustment_Note"
+            total = tot if tot is not None else total
+            data["reconciled"] = tot is not None
+            data["email_receipt"] = True
+
         if issue:
             data["issue_date"] = issue.isoformat()
             data["period_start"] = data["period_end"] = issue.isoformat()
@@ -192,6 +337,12 @@ For a total of A$1,999.00
         if not ref:
             data["reconciled"] = False  # the reference is part of the filename; without it we cannot file safely
         return data
+
+    def resolve_target_dir(self, data, original_path, cfg=None):
+        base = super().resolve_target_dir(data, original_path, cfg)
+        if base and data.get("email_receipt"):
+            return os.path.join(base, EMAIL_SUBDIR)
+        return base
 
     def default_filename(self, data: Dict[str, Any], original_path: str) -> str:
         current = os.path.basename(original_path or "")
@@ -208,6 +359,8 @@ For a total of A$1,999.00
             "v_retail_receipt": "Apple_Store_Receipt_20120305_R0000000001.pdf",
             "v_online_classic": "Apple_Invoice_20130707_0000000002.pdf",
             "v_online_receipt": "Apple_Invoice_20230925_MA00000001.pdf",
+            "v_email_appstore": "Apple_Receipt_20240602_000000000001.pdf",
+            "v_email_appstore_new": "Apple_Receipt_20251110_000000000002.pdf",
         }
         for ver, sample in self.sample_variants.items():
             d = self.extract(sample)

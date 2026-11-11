@@ -49,6 +49,13 @@ class TriageTests(unittest.TestCase):
         self.assertEqual(self.t.classify("Your kWh usage this quarter", "a.pdf"), "energy_utilities")
         self.assertIsNone(self.t.classify("nothing relevant here", "a.pdf"))
 
+    def test_word_boundaries_and_min_hits(self):
+        # "accidental" must not look like "Dental"; one medical word is not enough
+        self.assertNotEqual(self.t.classify("covers accidental damage for your device", "a.pdf"), "medical")
+        self.assertNotEqual(self.t.classify("Radiology waiting list", "a.pdf"), "medical")
+        self.assertEqual(self.t.classify("Hospital admission and Prescription list", "a.pdf"), "medical")
+        self.assertEqual(self.t.classify("AppleCare+ for Mac How Consumer Rights Affect this Plan", "a.pdf"), "manuals")
+
     def test_reason_folders(self):
         self.assertEqual(self.t.reason_folder("not_reconciled"), "unreconciled")
         self.assertEqual(self.t.reason_folder("Some Odd/Reason"), "some_odd_reason")

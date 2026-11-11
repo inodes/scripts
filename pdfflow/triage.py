@@ -107,8 +107,10 @@ def classify(text: str, filename: str, cfg: Optional[Dict[str, Any]] = None) -> 
     """First matching rule's folder name, or None."""
     for r in type_rules(cfg):
         rx_t, rx_f = r.get("text"), r.get("filename")
-        if rx_t and text and re.search(rx_t, text, re.I):
-            return r["name"]
+        if rx_t and text:
+            hits = {(m.group(0).lower()) for m in re.finditer(rx_t, text, re.I)}
+            if len(hits) >= int(r.get("min_hits", 1)):
+                return r["name"]
         if rx_f and re.search(rx_f, filename, re.I):
             return r["name"]
     return None
@@ -250,7 +252,7 @@ def _bucket(label: str, files: List[str], stale_days: Optional[int]) -> Dict[str
     now = time.time()
     for f in files:
         try:
-            age = (now - os.stat(f).st_mtime) / 86400
+            age = (now - os.stat(f).st_ctime) / 86400
         except OSError:
             continue
         if oldest is None or age > oldest_age:
