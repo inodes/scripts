@@ -3614,7 +3614,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
             const amtCls = t.amount < 0 ? 'text-red' : (t.amount > 0 ? 'text-green' : '');
             const sign = t.amount > 0 ? '+' : '';
             tr.innerHTML = `
-              <td><strong>${{fmtAuDate(t.date)}}</strong></td>
+              <td><strong>${{t.date}}</strong></td>
               <td><code>${{t.account_no}}</code></td>
               <td title="${{t.desc}}">${{t.desc}}</td>
               <td><span class="tag tag-solo">${{t.category}}</span></td>
@@ -4069,11 +4069,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
       // =============================================================
       // RENDER TRANSACTIONS TAB WITH FILTERING & PAGINATION
       // =============================================================
-      const AU_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      function fmtAuDate(iso) {{
-        const m = /^(\d{{4}})-(\d{{2}})-(\d{{2}})/.exec(iso || '');
-        return m ? `${{m[3]}} ${{AU_MONTHS[+m[2] - 1]}} ${{m[1]}}` : (iso || '');
-      }}
+      // Dates are shown and sorted as ISO YYYY-MM-DD (unambiguous, and sorts correctly as text).
 
       // Suggest a category rule for an uncategorised transaction. The report is a static file, so it
       // cannot save anything: it builds the exact line to paste into category_rules.json.
@@ -4268,7 +4264,7 @@ def render_html_report(data: Dict[str, Any]) -> str:
           }}
 
           tr.innerHTML = `
-            <td><strong>${{fmtAuDate(t.date)}}</strong></td>
+            <td><strong>${{t.date}}</strong></td>
             <td><code>${{t.account_no}}</code></td>
             <td title="${{t.desc}}">${{t.desc.length > 55 ? t.desc.slice(0, 52) + '...' : t.desc}}</td>
             <td><span class="tag tag-solo" style="cursor: pointer;" title="Click to filter by category" onclick="filterByThisCategory('${{t.category}}')">${{t.category}}</span>${{regPill}}</td>
