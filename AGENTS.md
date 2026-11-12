@@ -101,7 +101,11 @@ scripts/
             ├── commbank.py        # Commonwealth Bank Australia provider
             ├── ing.py             # ING Australia provider
             ├── workday.py         # Workday / payroll payslip provider (v2019_payroll, v2025_workday)
-            └── aapt.py            # AAPT payslip provider (v2012_aapt)
+            ├── aapt.py            # AAPT payslip provider (v2012_aapt)
+            ├── vendors.py         # VendorProvider base + Telstra, Vodafone, Aussie Broadband, Bunnings, Google Play (ISO-dated names)
+            ├── apple.py           # Apple receipts, credit notes, JP receipts, App Store emails
+            ├── agl.py             # AGL bills filed to {invoices}/AGL as AGL_Statement_<svc>_<start>_to_<end>.pdf
+            └── agl_parse.py       # AGL parsing/rates/naming, shared: ~/repos/tesla imports it via its config scripts_repo
 ```
 
 ---

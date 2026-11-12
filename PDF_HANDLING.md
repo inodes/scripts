@@ -56,3 +56,6 @@ AGL bills are filed by the `agl` provider into `{invoices}/AGL` as `AGL_Statemen
 The reading is done by `finance/statements/providers/agl_parse.py` (`AGLBillParser`), which `~/repos/tesla` imports
 (its `config.json` `scripts_repo`) to pull usage and rates out of the same bills, so there is one copy of that code.
 Tesla finds the bills through its own `directories.power_invoices`. AGL leaflets and offers are not bills and stay in triage.
+The AGL folder is one shared folder: Tesla's `directories.power_invoices` points at `{invoices}/AGL` (`~/iCloud/Finance/Invoices_Receipts/AGL`)
+and Tesla's manual usage CSVs (`AGL_YYYYMM.csv`, `MyUsageData_*.csv`) sit beside the bills. The CSVs are Tesla's inputs, so this
+repo does not read, rename or file them; keep that in mind before tidying the folder.
