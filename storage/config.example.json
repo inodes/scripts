@@ -1,6 +1,6 @@
 {
   "db_path": "~/Library/Application Support/storage_audit/catalogue.sqlite",
-  "report_dir": "~/Library/Mobile Documents/com~apple~CloudDocs/Storage/Reports",
+  "report_dir": "~/iCloud/scripts/storage/reports",
   "roots": {
     "LaCie1": "/Volumes/LaCie1",
     "Media": "/Volumes/Media",

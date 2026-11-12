@@ -79,7 +79,7 @@ scripts/
 ├── process_pdf.sh             # Generic PDF dispatcher run by Hazel: offers each PDF to every <section>/pdf_handler.sh
 ├── storage/                   # 📂 Storage audit section (read-only drive/photo inventory)
 │   ├── storage_audit.py           # scan / dupes / lrcat / report; SQLite catalogue kept local, never in iCloud
-│   ├── config.example.json        # Sanitised template; real config in iCloud Storage/config.json (gitignored)
+│   ├── config.example.json        # Sanitised template; real config in ~/iCloud/scripts/storage/config.json (outside the repo)
 │   └── README.md
 └── finance/                   # 📂 Finance & Statement Audit Toolkit (one section; others can be added alongside)
     ├── config.example.json        # Sanitized provider & directory configuration template (committed)

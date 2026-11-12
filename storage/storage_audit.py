@@ -238,7 +238,7 @@ def cmd_report(cfg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default="~/Library/Mobile Documents/com~apple~CloudDocs/Storage/config.json")
+    ap.add_argument("--config", default="~/iCloud/scripts/storage/config.json")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan"); s.add_argument("roots", nargs="*", help="limit to these root labels")
     d = sub.add_parser("dupes"); d.add_argument("--full", action="store_true"); d.add_argument("--kind")

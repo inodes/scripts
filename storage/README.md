@@ -3,8 +3,8 @@
 Read-only audit of files scattered across the Mac, external drives (LaCie1) and
 the QNAP. It never moves, renames or deletes anything.
 
-Real settings live in `~/Library/Mobile Documents/com~apple~CloudDocs/Storage/config.json`
-(copy `config.example.json` there and edit the roots). The catalogue database stays
+Real settings live in `~/iCloud/scripts/storage/config.json`
+(mirrors this repo's `storage/` folder; copy `config.example.json` there and edit the roots). The catalogue database stays
 local (`~/Library/Application Support/storage_audit/`), never in iCloud. HTML reports
 go to the configured `report_dir`.
 
