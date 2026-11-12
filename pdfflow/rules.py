@@ -26,6 +26,8 @@ DEFAULT_TYPES: List[Dict[str, str]] = [
     {"name": "telecom", "text": r"Vodafone|Telstra|Optus|Aussie Broadband|Internode|\bTPG\b|\bBelong\b"},
     {"name": "insurance",
      "text": r"\b(Bupa|Medibank|NRMA|Allianz)\b|Insurance Policy|Certificate of (Insurance|Currency)|Health cover"},
+    {"name": "order_notices",  # order status emails: no amounts, not tax documents
+     "text": r"Pickup\s+Instructions|Items to be\s+Shipped|Order Acknowledg\w+|Track Shipment|How did we do\?|Survey Invitation|order was\s+successfully updated"},
     {"name": "manuals",
      "text": r"AppleCare\+?\s+(for|Terms|Product Disclosure|Plan)|How Consumer Rights Affect this Plan|\bPDS\b"},
     {"name": "medical", "min_hits": 2,
