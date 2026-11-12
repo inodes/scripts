@@ -9,11 +9,12 @@ code spells that path out; it is found in this order:
 
 1. `--config PATH`
 2. `$STORAGE_AUDIT_CONFIG`
-3. `<iCloud>/<repo name>/<section>/config.json`, with the iCloud root taken from
+3. a git-ignored `config.json` beside the script: either full settings or just a
+   pointer, `{"config_file": "<path to the real config>"}`
+4. `<iCloud>/<repo name>/<section>/config.json`, with the iCloud root taken from
    `finance/statements/paths.py` (the one place that defines it)
-4. a git-ignored `config.json` beside the script
 
-Copy `config.example.json` to that location and edit the roots. The catalogue
+Copy `config.example.json` to the real location and edit the roots; the local pointer file is optional. The catalogue
 database stays local (`~/Library/Application Support/storage_audit/`), never in
 iCloud. Reports go to `report_dir` if set, otherwise a `reports/` folder beside
 `config.json`.

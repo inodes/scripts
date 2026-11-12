@@ -37,9 +37,10 @@ REPO_DIR = os.path.dirname(HERE)
 def default_config_path():
     """Where config.json lives, with no path spelled out here.
 
-    Order: $STORAGE_AUDIT_CONFIG; then the iCloud folder that mirrors this repo
-    (<icloud>/<repo name>/<section>/config.json, e.g. repos/scripts/storage ->
-    iCloud/scripts/storage); then a git-ignored config.json beside this script.
+    Order: $STORAGE_AUDIT_CONFIG; then a git-ignored config.json beside this script
+    (either full settings, or a pointer {"config_file": "<real config>"}); then the
+    iCloud folder that mirrors this repo (<icloud>/<repo name>/<section>/config.json,
+    e.g. repos/scripts/storage -> iCloud/scripts/storage).
     The iCloud root comes from finance/statements/paths.py, the one place that defines it.
     """
     env = os.environ.get("STORAGE_AUDIT_CONFIG")
@@ -55,16 +56,18 @@ def default_config_path():
         pass
     finally:
         sys.path.pop(0)
-    cands = [os.path.abspath(os.path.expanduser(os.path.join(r, mirror))) for r in roots]
-    cands.append(os.path.join(HERE, "config.json"))
+    local = os.path.join(HERE, "config.json")
+    cands = [local] + [os.path.abspath(os.path.expanduser(os.path.join(r, mirror))) for r in roots]
     for c in cands:
         if os.path.isfile(c):
             return c
-    return cands[0]
+    return cands[1] if len(cands) > 1 else local
 
 
-def load_config(path):
+def load_config(path, _via=None):
     path = os.path.expanduser(path)
+    if not os.path.exists(path) and _via:
+        sys.exit(f"Config not found: {path}\n(pointed to by {_via})")
     if not os.path.exists(path):
         here = os.path.dirname(os.path.abspath(__file__))
         sys.exit(f"Config not found: {path}\nCreate it from the template:\n"
@@ -73,6 +76,13 @@ def load_config(path):
                  "then edit the roots to match your mounted volumes.")
     with open(path) as f:
         cfg = json.load(f)
+    if "config_file" in cfg:  # local pointer file -> the real config (one hop only)
+        if _via:
+            sys.exit(f"{path}: config_file pointers cannot be chained")
+        target = os.path.expanduser(cfg["config_file"])
+        if not os.path.isabs(target):
+            target = os.path.join(os.path.dirname(path), target)
+        return load_config(target, _via=path)
     cfg["db_path"] = os.path.expanduser(cfg.get("db_path", "~/Library/Application Support/storage_audit/catalogue.sqlite"))
     # reports default to a folder beside config.json (iCloud) so no location is baked into code
     cfg["report_dir"] = os.path.expanduser(cfg.get("report_dir") or os.path.join(os.path.dirname(path), "reports"))
