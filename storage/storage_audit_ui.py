@@ -8,9 +8,11 @@ as a static index.html (`storage_audit.py report`).
 
     storage/storage_audit_ui.py [--config PATH] [--port 8765] [--no-browser]
 
+If the port is busy it tries the next 20 (unless --port is given) and prints the URL.
+
 Standard library only.
 """
-import argparse, json, os, subprocess, sys, threading, webbrowser
+import argparse, errno, json, os, subprocess, sys, threading, webbrowser
 from collections import defaultdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -360,10 +362,22 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
+    a.port_explicit = any(x == "--port" or x.startswith("--port=") for x in sys.argv[1:])
     CONFIG_PATH = os.path.expanduser(a.config) if a.config else sa.default_config_path()
     CFG = sa.load_config(CONFIG_PATH)
-    srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
-    url = f"http://127.0.0.1:{a.port}/"
+    srv = None
+    # port busy (often an earlier copy of this UI): try the next few, unless one was asked for
+    for port in ([a.port] if a.port_explicit else range(a.port, a.port + 20)):
+        try:
+            srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError as e:
+            if e.errno != errno.EADDRINUSE:
+                raise
+            print(f"Port {port} is in use" + ("" if a.port_explicit else ", trying the next one"))
+    if srv is None:
+        sys.exit(f"No free port available. Stop the other process (lsof -nP -iTCP:{a.port} -sTCP:LISTEN) or pass --port N.")
+    url = f"http://127.0.0.1:{srv.server_address[1]}/"
     print(f"Storage audit UI: {url}  (Ctrl-C to stop)")
     if not a.no_browser:
         webbrowser.open(url)
