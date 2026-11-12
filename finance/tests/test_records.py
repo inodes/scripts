@@ -15,8 +15,9 @@ class RecordsTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.tmp, "cloud", "Finance", "Data"))
         self.cfg = os.path.join(self.tmp, "config.json")
-        json.dump({"directories": {"icloud": os.path.join(self.tmp, "cloud"), "data": os.path.join(self.tmp, "d")},
-                   "personal": {"legacy_key": 1, "remittances": ["inline"]}}, open(self.cfg, "w"))
+        with open(self.cfg, "w") as fh:
+            json.dump({"directories": {"icloud": os.path.join(self.tmp, "cloud"), "data": os.path.join(self.tmp, "d")},
+                       "personal": {"legacy_key": 1, "remittances": ["inline"]}}, fh)
         self.old = os.environ.get("PDF_AUDIT_CONFIG")
         os.environ["PDF_AUDIT_CONFIG"] = self.cfg
         paths.directories(refresh=True)

@@ -378,7 +378,8 @@ For a total of A$1,999.00
         current = os.path.basename(original_path or "")
         if not (data.get("date_compact") and data.get("reference") and data.get("filename_stem")):
             return current
-        stem = f"{data['filename_stem']}_{data['date_compact']}_{data['reference']}"
+        c = data["date_compact"]
+        stem = f"{data['filename_stem']}_{c[:4]}-{c[4:6]}-{c[6:8]}_{data['reference']}"  # ISO date in names
         if re.fullmatch(re.escape(stem) + r"(_\d{2})?\.pdf", current):
             return current  # keep a duplicate suffix
         return stem + ".pdf"
@@ -386,12 +387,12 @@ For a total of A$1,999.00
     def run_self_test(self, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         results: Dict[str, Any] = {"provider": self.name, "ok": True, "variants": {}}
         expect = {
-            "v_retail_receipt": "Apple_Store_Receipt_20120305_R0000000001.pdf",
-            "v_online_classic": "Apple_Invoice_20130707_0000000002.pdf",
-            "v_online_receipt": "Apple_Invoice_20230925_MA00000001.pdf",
-            "v_japan_invoice": "Apple_Invoice_20220916_AJ00000001.pdf",
-            "v_email_appstore": "Apple_Receipt_20240602_000000000001.pdf",
-            "v_email_appstore_new": "Apple_Receipt_20251110_000000000002.pdf",
+            "v_retail_receipt": "Apple_Store_Receipt_2012-03-05_R0000000001.pdf",
+            "v_online_classic": "Apple_Invoice_2013-07-07_0000000002.pdf",
+            "v_online_receipt": "Apple_Invoice_2023-09-25_MA00000001.pdf",
+            "v_japan_invoice": "Apple_Invoice_2022-09-16_AJ00000001.pdf",
+            "v_email_appstore": "Apple_Receipt_2024-06-02_000000000001.pdf",
+            "v_email_appstore_new": "Apple_Receipt_2025-11-10_000000000002.pdf",
         }
         for ver, sample in self.sample_variants.items():
             d = self.extract(sample)

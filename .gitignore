@@ -44,3 +44,6 @@ scratch/
 
 # Optional local PII word list used by finance/pii_guard.py
 .pii_denylist.local
+
+# FUSE sandbox artefacts (never commit)
+.fuse_hidden*

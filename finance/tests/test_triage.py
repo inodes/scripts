@@ -41,7 +41,8 @@ class TriageTests(unittest.TestCase):
     def pdf(self, name, data=b"%PDF-1.4 a", where="unsorted"):
         p = os.path.join(self.icloud, "PDF", where, name)
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "wb").write(data)
+        with open(p, "wb") as fh:
+            fh.write(data)
         return p
 
     def test_classify_order_and_config_rule_first(self):
@@ -90,7 +91,8 @@ class TriageTests(unittest.TestCase):
         r = self.t.place(p, dry_run=False)
         self.assertTrue(r["dest"].endswith("unknown_type/same_01.pdf"))
         out = os.path.join(self.tmp, "elsewhere.pdf")
-        open(out, "wb").write(b"%PDF z")
+        with open(out, "wb") as fh:
+            fh.write(b"%PDF z")
         self.assertEqual(self.t.place(out, dry_run=False)["action"], "outside_pdf_root")
         self.assertTrue(os.path.exists(out))
 

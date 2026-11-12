@@ -112,7 +112,8 @@ class VendorProvider(BasePDFProvider):
         current = os.path.basename(original_path or "")
         if not (data.get("date_compact") and data.get("reference") and data.get("filename_stem")):
             return current
-        stem = f"{data['filename_stem']}_{data['date_compact']}_{data['reference']}"
+        c = data["date_compact"]
+        stem = f"{data['filename_stem']}_{c[:4]}-{c[4:6]}-{c[6:8]}_{data['reference']}"  # ISO date in names
         if re.fullmatch(re.escape(stem) + r"(_\d{2})?\.pdf", current):
             return current
         return stem + ".pdf"
@@ -187,11 +188,11 @@ This invoice includes $9.00 GST.
 """,
     }
     sample_expect = {
-        "v_invoice": "ABB_Invoice_20191007_0000001.pdf",
-        "v_invoice_2024": "ABB_Invoice_20240502_00000004.pdf",
-        "v_email_notice": "ABB_Invoice_Notice_20210302_00000005.pdf",
-        "v_payment_receipt": "ABB_Payment_Receipt_20201117_0000002.pdf",
-        "v_tax_invoice_text": "ABB_Invoice_20191202_0000003.pdf",
+        "v_invoice": "ABB_Invoice_2019-10-07_0000001.pdf",
+        "v_invoice_2024": "ABB_Invoice_2024-05-02_00000004.pdf",
+        "v_email_notice": "ABB_Invoice_Notice_2021-03-02_00000005.pdf",
+        "v_payment_receipt": "ABB_Payment_Receipt_2020-11-17_0000002.pdf",
+        "v_tax_invoice_text": "ABB_Invoice_2019-12-02_0000003.pdf",
     }
 
     def versions(self, t):
@@ -262,7 +263,7 @@ class TelstraProvider(VendorProvider):
  Account number 0000 00000 0000
 """,
     }
-    sample_expect = {"v_bill": "Telstra_Bill_20121008_0000000001.pdf"}
+    sample_expect = {"v_bill": "Telstra_Bill_2012-10-08_0000000001.pdf"}
 
     def versions(self, t):
         if "33 051 775 556" in t and re.search(r"Bill number:?\s*\d", t) and re.search(r"Total due:?\s*\$", t):
@@ -298,7 +299,7 @@ Your Vodafone email bill
  Date of issue: 18 Aug 2012
 """,
     }
-    sample_expect = {"v_email_notice": "Vodafone_Bill_Notice_20120818_0000000002.pdf"}
+    sample_expect = {"v_email_notice": "Vodafone_Bill_Notice_2012-08-18_0000000002.pdf"}
 
     def versions(self, t):
         if re.search(r"Your Vodafone email bill", t, re.I) and re.search(r"Invoice no:\s*\d+", t):
@@ -335,7 +336,7 @@ GST INCLUDED IN THE TOTAL $9.09
  EFT $100.00
 """,
     }
-    sample_expect = {"v_digital_receipt": "Bunnings_Receipt_20191226_EXAMPLEVILLE-160640.pdf"}
+    sample_expect = {"v_digital_receipt": "Bunnings_Receipt_2019-12-26_EXAMPLEVILLE-160640.pdf"}
 
     def versions(self, t):
         if "BUNNINGS GROUP LIMITED" in t.upper() and "DIGITAL RECEIPT" in t.upper():
@@ -377,7 +378,7 @@ Yearly Subscription - Auto Renews on 09-Jul-2019
 Google Play
 """,
     }
-    sample_expect = {"v_order_receipt": "Google_Play_Receipt_20180709_SOP.0000-0000-0000-00000.pdf"}
+    sample_expect = {"v_order_receipt": "Google_Play_Receipt_2018-07-09_SOP.0000-0000-0000-00000.pdf"}
 
     def versions(self, t):
         if "Google Play" in t and re.search(r"Order number:\s*\S+", t) and re.search(r"Order date:\s*\d", t):

@@ -1,7 +1,0 @@
-{
-  "description": "User-defined merchant and keyword categorization rules. Matches are case-insensitive substrings against transaction descriptions.",
-  "rules": {
-    "SAMPLE MERCHANT": "Groceries & Dining",
-    "AIRLINE NAME": "Travel & Holidays"
-  }
-}
