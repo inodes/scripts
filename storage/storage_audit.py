@@ -31,7 +31,14 @@ DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Spotlight-V100"
 
 
 def load_config(path):
-    with open(os.path.expanduser(path)) as f:
+    path = os.path.expanduser(path)
+    if not os.path.exists(path):
+        here = os.path.dirname(os.path.abspath(__file__))
+        sys.exit(f"Config not found: {path}\nCreate it from the template:\n"
+                 f"  mkdir -p \"{os.path.dirname(path)}\" && "
+                 f"cp \"{here}/config.example.json\" \"{path}\"\n"
+                 "then edit the roots to match your mounted volumes.")
+    with open(path) as f:
         cfg = json.load(f)
     cfg["db_path"] = os.path.expanduser(cfg["db_path"])
     cfg["report_dir"] = os.path.expanduser(cfg["report_dir"])
@@ -186,7 +193,7 @@ def cmd_report(cfg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default="~/Library/Mobile Documents/com~apple~CloudDocs/Storage/config.json")
+    ap.add_argument("--config", default="~/iCloud/scripts/storage/config.json")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan"); s.add_argument("roots", nargs="*", help="limit to these root labels")
     d = sub.add_parser("dupes"); d.add_argument("--full", action="store_true"); d.add_argument("--kind")
