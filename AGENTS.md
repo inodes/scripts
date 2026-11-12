@@ -77,6 +77,10 @@ scripts/
 ├── requirements.txt           # Python dependencies (pypdf>=4.0)
 ├── fix_exec_bits.sh           # Ensures all *.py and *.sh files have u+x and installs pre-commit hook
 ├── process_pdf.sh             # Generic PDF dispatcher run by Hazel: offers each PDF to every <section>/pdf_handler.sh
+├── storage/                   # 📂 Storage audit section (read-only drive/photo inventory)
+│   ├── storage_audit.py           # scan / dupes / lrcat / report; SQLite catalogue kept local, never in iCloud
+│   ├── config.example.json        # Sanitised template; real config in iCloud Storage/config.json (gitignored)
+│   └── README.md
 └── finance/                   # 📂 Finance & Statement Audit Toolkit (one section; others can be added alongside)
     ├── config.example.json        # Sanitized provider & directory configuration template (committed)
     ├── category_rules.example.json# Sanitized category rules template (committed)
