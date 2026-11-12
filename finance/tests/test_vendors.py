@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from statements.providers import AVAILABLE_PROVIDERS, detect_provider
 
-NAMES = ("aussiebb", "telstra", "vodafone", "bunnings", "google_play")
+NAMES = ("aussiebb", "agl", "telstra", "vodafone", "bunnings", "google_play")
 
 
 class VendorSelfTests(unittest.TestCase):
@@ -31,6 +31,14 @@ class VendorSelfTests(unittest.TestCase):
         a = [p for p in AVAILABLE_PROVIDERS if p.name == "aussiebb"][0]
         r = a.parse("v_invoice", "Invoice #: 1\nIssue Date: 02/11/2019\nCustomer: X Invoice Number: 1 Total Due: $-50.00")
         self.assertEqual(str(r["total"]), "-50.00")
+
+    def test_vodafone_2019_uses_email_date(self):
+        v = [p for p in AVAILABLE_PROVIDERS if p.name == "vodafone"][0]
+        text = "Hi SAMPLE,\nVodafone bill\nAccount number\n000000000\nInvoice number\n0000000004\nTotal balance due\n$162.21DR\n"
+        d = v.extract(text, "rendered_2025-07-18_x.pdf")
+        self.assertTrue(d["reconciled"])
+        self.assertEqual(v.default_filename(d, "x.pdf"), "Vodafone_Bill_Notice_2025-07-18_0000000004.pdf")
+        self.assertFalse(v.extract(text, "x.pdf")["reconciled"])  # no date anywhere -> held
 
 
 if __name__ == "__main__":

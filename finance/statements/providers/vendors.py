@@ -10,6 +10,7 @@ Rendered email bodies (not original PDFs) go to a sub-folder so originals stay s
   AussieBBProvider   Invoice (Tax Invoice, "Invoice #"), Payment Receipt, rendered "TAX INVOICE"
   TelstraProvider    Bill ("Tax Invoice ... Bill number", ABN 33 051 775 556)
   VodafoneProvider   The "email bill" notice
+  AGLProvider        Paper-style tax invoice (reference = supply-period end, no invoice number printed)
   BunningsProvider   Digital receipt (store, date/time, total)
   GooglePlayProvider Order receipt ("Order number", "Order date")
 """
@@ -46,6 +47,12 @@ def _dmy_slash(m) -> Optional[datetime.date]:  # dd/mm/yyyy (or yy)
 def _d_mon_y(day: str, mon: str, year: str) -> Optional[datetime.date]:
     mo = MONTHS.get(mon[:3].lower())
     return _date(int(year), mo, int(day)) if mo else None
+
+
+def _filename_date(path: str) -> Optional[datetime.date]:
+    """Date the email arrived, from a leading [rendered_]YYYY-MM-DD_ in the downloaded filename."""
+    m = re.match(r"(?:rendered_)?(\d{4})-(\d{2})-(\d{2})_", os.path.basename(path or ""))
+    return _date(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
 def _slug(s: str) -> str:
@@ -90,6 +97,7 @@ class VendorProvider(BasePDFProvider):
         }
         if not ver:
             return data
+        self._path = pdf_path or ""
         r = self.parse(ver, t)
         issue: Optional[datetime.date] = r.get("issue")
         if issue:
@@ -282,14 +290,22 @@ class TelstraProvider(VendorProvider):
                 "total": _num(tot.group(1)) if tot else None, "stem": "Telstra_Bill"}
 
 
+# v_email_2019 has no printed issue date, so it is covered in tests/test_vendors.py (needs a filename date)
 class VodafoneProvider(VendorProvider):
     name = "vodafone"
     display_name = "Vodafone"
     doc_type = "vodafone_bill"
     vendor_dir = "Vodafone"
     source_domains = ["vodafone.com.au"]
-    format_versions = ["v_email_notice"]
+    format_versions = ["v_email_notice", "v_email_2013", "v_email_2019"]
     sample_variants = {
+        "v_email_2013": """
+Hi SAMPLE,
+Total due $193.81DR
+Account No. 000000000
+Invoice No. 0000000003
+Date of Issue 18 Aug 2018
+""",
         "v_email_notice": """
 Your Vodafone email bill
  Total due
@@ -299,20 +315,74 @@ Your Vodafone email bill
  Date of issue: 18 Aug 2012
 """,
     }
-    sample_expect = {"v_email_notice": "Vodafone_Bill_Notice_2012-08-18_0000000002.pdf"}
+    sample_expect = {"v_email_notice": "Vodafone_Bill_Notice_2012-08-18_0000000002.pdf",
+                     "v_email_2013": "Vodafone_Bill_Notice_2018-08-18_0000000003.pdf"}
 
     def versions(self, t):
         if re.search(r"Your Vodafone email bill", t, re.I) and re.search(r"Invoice no:\s*\d+", t):
             return "v_email_notice"
+        if re.search(r"Invoice No\.\s*\d+", t) and re.search(r"Date of Issue\s+\d", t) and re.search(r"Total due\s*\$", t):
+            return "v_email_2013"
+        if re.search(r"Invoice number\s*\d+", t) and re.search(r"Total balance due\s*\$", t) and "Vodafone" in t:
+            return "v_email_2019"
         return None
 
     def parse(self, ver, t):
+        if ver == "v_email_2013":
+            m = re.search(r"Date of Issue\s+(\d{1,2}) ([A-Za-z]+) (20\d\d)", t)
+            ref = re.search(r"Invoice No\.\s*(\d+)", t)
+            tot = re.search(r"Total due\s*\$([\d,.]+)", t)
+            return {"issue": _d_mon_y(m.group(1), m.group(2), m.group(3)) if m else None, "ref": ref and ref.group(1),
+                    "total": _num(tot.group(1)) if tot else None, "stem": "Vodafone_Bill_Notice", "subdir": "Email_Receipts"}
+        if ver == "v_email_2019":  # no issue date printed: use the arrival date of the email
+            ref = re.search(r"Invoice number\s*(\d+)", t)
+            tot = re.search(r"Total balance due\s*\$([\d,.]+)", t)
+            return {"issue": _filename_date(getattr(self, "_path", "")), "ref": ref and ref.group(1),
+                    "total": _num(tot.group(1)) if tot else None, "stem": "Vodafone_Bill_Notice", "subdir": "Email_Receipts"}
         m = re.search(r"Date of issue:\s*(\d{1,2}) ([A-Za-z]+) (20\d\d)", t)
         ref = re.search(r"Invoice no:\s*(\d+)", t)
         tot = (re.search(r"Total due\s*\$[\d,.]+\s*\$([\d,.]+)", t)
                or re.search(r"Total due\s*\$([\d,.]+)", t))
         return {"issue": _d_mon_y(m.group(1), m.group(2), m.group(3)) if m else None, "ref": ref and ref.group(1),
                 "total": _num(tot.group(1)) if tot else None, "stem": "Vodafone_Bill_Notice", "subdir": "Email_Receipts"}
+
+
+class AGLProvider(VendorProvider):
+    name = "agl"
+    display_name = "AGL"
+    doc_type = "agl_invoice"
+    vendor_dir = "AGL"
+    source_domains = ["agl.com.au"]
+    format_versions = ["v_tax_invoice"]
+    sample_variants = {
+        "v_tax_invoice": """
+Account name Sample Person
+Supply period 22 Dec 2011 to 20 Mar 2012
+Your account number 0000 0000
+Total amount due $121.76
+Pay by 12 Apr 2012
+TAX INVOICE
+Issued: 21 Mar 2012
+AGL Retail Energy Limited ABN 21 074 839 464
+""",
+    }
+    # AGL's paper-style invoice prints no invoice number: the supply-period end identifies the bill
+    sample_expect = {"v_tax_invoice": "AGL_Invoice_2012-03-21_P20120320.pdf"}
+
+    def versions(self, t):
+        if "AGL" in t and re.search(r"TAX INVOICE", t) and re.search(r"Issued:\s*\d", t) \
+                and re.search(r"Total amount due\s*\$", t) and re.search(r"Supply period", t):
+            return "v_tax_invoice"
+        return None
+
+    def parse(self, ver, t):
+        m = re.search(r"Issued:\s*(\d{1,2}) ([A-Za-z]+) (20\d\d)", t)
+        per = re.search(r"Supply period\s+\d{1,2} [A-Za-z]+ 20\d\d to (\d{1,2}) ([A-Za-z]+) (20\d\d)", t)
+        end = _d_mon_y(per.group(1), per.group(2), per.group(3)) if per else None
+        tot = re.search(r"Total amount due\s*\$([\d,]+\.\d{2})", t)
+        return {"issue": _d_mon_y(m.group(1), m.group(2), m.group(3)) if m else None,
+                "ref": "P" + end.strftime("%Y%m%d") if end else None,
+                "total": _num(tot.group(1)) if tot else None, "stem": "AGL_Invoice"}
 
 
 class BunningsProvider(VendorProvider):
