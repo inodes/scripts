@@ -356,11 +356,11 @@ nav();render();poll();
 def main():
     global CFG, CONFIG_PATH
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default="~/iCloud/scripts/storage/config.json")
+    ap.add_argument("--config", default=None, help="default: see storage_audit.default_config_path()")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
-    CONFIG_PATH = os.path.expanduser(a.config)
+    CONFIG_PATH = os.path.expanduser(a.config) if a.config else sa.default_config_path()
     CFG = sa.load_config(CONFIG_PATH)
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
     url = f"http://127.0.0.1:{a.port}/"

@@ -30,6 +30,39 @@ DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Spotlight-V100"
                    ".fseventsd", ".TemporaryItems", ".timemachine"]
 
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.dirname(HERE)
+
+
+def default_config_path():
+    """Where config.json lives, with no path spelled out here.
+
+    Order: $STORAGE_AUDIT_CONFIG; then the iCloud folder that mirrors this repo
+    (<icloud>/<repo name>/<section>/config.json, e.g. repos/scripts/storage ->
+    iCloud/scripts/storage); then a git-ignored config.json beside this script.
+    The iCloud root comes from finance/statements/paths.py, the one place that defines it.
+    """
+    env = os.environ.get("STORAGE_AUDIT_CONFIG")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    mirror = os.path.join(os.path.basename(REPO_DIR), os.path.basename(HERE), "config.json")
+    roots = []
+    try:
+        sys.path.insert(0, os.path.join(REPO_DIR, "finance"))
+        from statements import paths  # standalone module; single source of the iCloud root
+        roots = [paths.ICLOUD, paths.ICLOUD_REAL]
+    except ImportError:
+        pass
+    finally:
+        sys.path.pop(0)
+    cands = [os.path.abspath(os.path.expanduser(os.path.join(r, mirror))) for r in roots]
+    cands.append(os.path.join(HERE, "config.json"))
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return cands[0]
+
+
 def load_config(path):
     path = os.path.expanduser(path)
     if not os.path.exists(path):
@@ -40,8 +73,9 @@ def load_config(path):
                  "then edit the roots to match your mounted volumes.")
     with open(path) as f:
         cfg = json.load(f)
-    cfg["db_path"] = os.path.expanduser(cfg["db_path"])
-    cfg["report_dir"] = os.path.expanduser(cfg["report_dir"])
+    cfg["db_path"] = os.path.expanduser(cfg.get("db_path", "~/Library/Application Support/storage_audit/catalogue.sqlite"))
+    # reports default to a folder beside config.json (iCloud) so no location is baked into code
+    cfg["report_dir"] = os.path.expanduser(cfg.get("report_dir") or os.path.join(os.path.dirname(path), "reports"))
     cfg["roots"] = {k: os.path.expanduser(v) for k, v in cfg["roots"].items()}
     cfg.setdefault("exclude_names", DEFAULT_EXCLUDE)
     cfg.setdefault("min_dupe_bytes", 1_000_000)
@@ -193,14 +227,14 @@ def cmd_report(cfg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default="~/iCloud/scripts/storage/config.json")
+    ap.add_argument("--config", default=None)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan"); s.add_argument("roots", nargs="*", help="limit to these root labels")
     d = sub.add_parser("dupes"); d.add_argument("--full", action="store_true"); d.add_argument("--kind")
     l = sub.add_parser("lrcat"); l.add_argument("catalogue")
     sub.add_parser("report")
     a = ap.parse_args()
-    cfg = load_config(a.config)
+    cfg = load_config(a.config or default_config_path())
     {"scan": lambda: cmd_scan(cfg, set(a.roots)), "dupes": lambda: cmd_dupes(cfg, a.full, a.kind),
      "lrcat": lambda: cmd_lrcat(cfg, a.catalogue), "report": lambda: cmd_report(cfg)}[a.cmd]()
 

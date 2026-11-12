@@ -3,10 +3,20 @@
 Read-only audit of files scattered across the Mac, external drives (LaCie1) and
 the QNAP. It never moves, renames or deletes anything.
 
-Real settings live in `~/iCloud/scripts/storage/config.json` (mirrors this repo's
-`storage/` folder; copy `config.example.json` there and edit the roots). The
-catalogue database stays local (`~/Library/Application Support/storage_audit/`),
-never in iCloud. Reports go to the configured `report_dir`.
+Real settings live outside the repo in an iCloud folder that mirrors this one
+(`repos/scripts/storage` -> `<iCloud>/scripts/storage/config.json`). Nothing in the
+code spells that path out; it is found in this order:
+
+1. `--config PATH`
+2. `$STORAGE_AUDIT_CONFIG`
+3. `<iCloud>/<repo name>/<section>/config.json`, with the iCloud root taken from
+   `finance/statements/paths.py` (the one place that defines it)
+4. a git-ignored `config.json` beside the script
+
+Copy `config.example.json` to that location and edit the roots. The catalogue
+database stays local (`~/Library/Application Support/storage_audit/`), never in
+iCloud. Reports go to `report_dir` if set, otherwise a `reports/` folder beside
+`config.json`.
 
 ## Visual version
 
