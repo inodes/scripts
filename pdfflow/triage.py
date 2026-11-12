@@ -84,7 +84,11 @@ def review_dir(reason: Optional[str] = None) -> str:
     return os.path.join(base, reason) if reason else base
 
 
-def type_dir(name: str) -> str:
+def type_dir(name: str, cfg: Optional[Dict[str, Any]] = None) -> str:
+    """Folder for a type: PDF/<name>, or the rule's own "dir" (an existing folder another tool reads)."""
+    for r in type_rules(cfg):
+        if r["name"] == name and r.get("dir"):
+            return os.path.join(paths.get("pdf"), r["dir"])
     return os.path.join(paths.get("pdf"), name)
 
 

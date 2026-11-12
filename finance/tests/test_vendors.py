@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from statements.providers import AVAILABLE_PROVIDERS, detect_provider
 
-NAMES = ("aussiebb", "agl", "telstra", "vodafone", "bunnings", "google_play")
+NAMES = ("aussiebb", "telstra", "vodafone", "bunnings", "google_play")
 
 
 class VendorSelfTests(unittest.TestCase):

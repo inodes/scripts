@@ -50,3 +50,6 @@ with bank lines, put rough rates in `Finance/Data/fx_rates.json` (data, not conf
 {"aud": 0.0104, "source": "..."}}}`; a `YYYY-MM` key covers a month) and run
 `python3 finance/apple_crosscheck.py` (read-only; `--all` also checks AUD invoices; window `--days`, amount
 `--tolerance`, default 6% for card FX margin). It reports matched / ambiguous / unmatched / no_rate.
+
+## AGL
+AGL bills are routed to `PDF/AGL` (triage type `agl`, rule `dir`). That folder is read and named by `~/repos/tesla` (`tesla sync invoices --provider agl`), so this repo does not parse or rename AGL bills. Leaflets and offers stay in `PDF/energy_utilities`.

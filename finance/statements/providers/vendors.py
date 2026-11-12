@@ -10,7 +10,6 @@ Rendered email bodies (not original PDFs) go to a sub-folder so originals stay s
   AussieBBProvider   Invoice (Tax Invoice, "Invoice #"), Payment Receipt, rendered "TAX INVOICE"
   TelstraProvider    Bill ("Tax Invoice ... Bill number", ABN 33 051 775 556)
   VodafoneProvider   The "email bill" notice
-  AGLProvider        Paper-style tax invoice (reference = supply-period end, no invoice number printed)
   BunningsProvider   Digital receipt (store, date/time, total)
   GooglePlayProvider Order receipt ("Order number", "Order date")
 """
@@ -345,44 +344,6 @@ Your Vodafone email bill
                or re.search(r"Total due\s*\$([\d,.]+)", t))
         return {"issue": _d_mon_y(m.group(1), m.group(2), m.group(3)) if m else None, "ref": ref and ref.group(1),
                 "total": _num(tot.group(1)) if tot else None, "stem": "Vodafone_Bill_Notice", "subdir": "Email_Receipts"}
-
-
-class AGLProvider(VendorProvider):
-    name = "agl"
-    display_name = "AGL"
-    doc_type = "agl_invoice"
-    vendor_dir = "AGL"
-    source_domains = ["agl.com.au"]
-    format_versions = ["v_tax_invoice"]
-    sample_variants = {
-        "v_tax_invoice": """
-Account name Sample Person
-Supply period 22 Dec 2011 to 20 Mar 2012
-Your account number 0000 0000
-Total amount due $121.76
-Pay by 12 Apr 2012
-TAX INVOICE
-Issued: 21 Mar 2012
-AGL Retail Energy Limited ABN 21 074 839 464
-""",
-    }
-    # AGL's paper-style invoice prints no invoice number: the supply-period end identifies the bill
-    sample_expect = {"v_tax_invoice": "AGL_Invoice_2012-03-21_P20120320.pdf"}
-
-    def versions(self, t):
-        if "AGL" in t and re.search(r"TAX INVOICE", t) and re.search(r"Issued:\s*\d", t) \
-                and re.search(r"Total amount due\s*\$", t) and re.search(r"Supply period", t):
-            return "v_tax_invoice"
-        return None
-
-    def parse(self, ver, t):
-        m = re.search(r"Issued:\s*(\d{1,2}) ([A-Za-z]+) (20\d\d)", t)
-        per = re.search(r"Supply period\s+\d{1,2} [A-Za-z]+ 20\d\d to (\d{1,2}) ([A-Za-z]+) (20\d\d)", t)
-        end = _d_mon_y(per.group(1), per.group(2), per.group(3)) if per else None
-        tot = re.search(r"Total amount due\s*\$([\d,]+\.\d{2})", t)
-        return {"issue": _d_mon_y(m.group(1), m.group(2), m.group(3)) if m else None,
-                "ref": "P" + end.strftime("%Y%m%d") if end else None,
-                "total": _num(tot.group(1)) if tot else None, "stem": "AGL_Invoice"}
 
 
 class BunningsProvider(VendorProvider):

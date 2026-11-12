@@ -90,6 +90,12 @@ class TriageTests(unittest.TestCase):
         self.assertIsNone(self.t.find_duplicate(a, None))  # the earlier-named copy is the original
         self.assertEqual(os.path.realpath(self.t.find_duplicate(b, None)), os.path.realpath(a))
 
+    def test_agl_bill_goes_to_existing_agl_folder_but_leaflet_does_not(self):
+        bill = "AGL Retail Energy\nSupply period 1 Jan 2012 to 2 Mar 2012\nTotal amount due $1.00"
+        self.assertEqual(self.t.classify(bill, "a.pdf"), "agl")
+        self.assertTrue(self.t.type_dir("agl").endswith(os.path.join("PDF", "AGL")))
+        self.assertEqual(self.t.classify("AGL offers: save with solar", "a.pdf"), "energy_utilities")
+
     def test_held_duplicate_is_not_an_original(self):
         held = self.pdf("2013_a_leaflet.pdf", b"%PDF same", where="needs_review/duplicate")
         back = self.pdf("2013_a_leaflet.pdf", b"%PDF same")
