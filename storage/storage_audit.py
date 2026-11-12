@@ -26,8 +26,10 @@ KINDS = {
 }
 EXT_KIND = {e: k for k, v in KINDS.items() for e in v.split()}
 PHOTO_EXT = set(KINDS["photo"].split())
-DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Spotlight-V100",
-                   ".fseventsd", ".TemporaryItems", ".timemachine"]
+DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Trashes", ".Spotlight-V100",
+                   ".fseventsd", ".TemporaryItems", ".timemachine", ".DocumentRevisions-V100",
+                   ".MobileBackups", ".PKInstallSandboxManager", ".PKInstallSandboxManager-SystemSoftware",
+                   "System Volume Information", "$RECYCLE.BIN"]
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -119,13 +121,14 @@ def cmd_scan(cfg, only):
         print(f"[scan] {label} ({root})")
         con.execute("DELETE FROM files WHERE root=?", (label,))
         rows, n, total = [], 0, 0
+        unreadable = []
         stack = [root]
         while stack:
             d = stack.pop()
             try:
                 it = os.scandir(d)
             except OSError as e:
-                print(f"  ! {d}: {e.strerror}")
+                unreadable.append((d, e.strerror))  # summarised after the scan, not printed one by one
                 continue
             with it:
                 for e in it:
@@ -153,6 +156,10 @@ def cmd_scan(cfg, only):
                     (label, datetime.now(timezone.utc).strftime("%Y-%m-%d"), n, total))
         con.commit()
         print(f"  done: {n:,} files, {total/1e9:,.1f} GB")
+        if unreadable:
+            print(f"  {len(unreadable):,} folder(s) could not be read (not counted); first few:")
+            for d, why in unreadable[:5]:
+                print(f"    {os.path.relpath(d, root)}: {why}")
 
 
 def partial_hash(path, size, chunk=65536):
