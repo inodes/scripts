@@ -84,6 +84,12 @@ class TriageTests(unittest.TestCase):
         s = self.t.summary()
         self.assertEqual(s["needs_attention"], 2)
 
+    def test_identical_pair_in_unsorted_keeps_one_original(self):
+        a = self.pdf("2013_a_leaflet.pdf", b"%PDF same")
+        b = self.pdf("2013_b_leaflet.pdf", b"%PDF same")
+        self.assertIsNone(self.t.find_duplicate(a, None))  # the earlier-named copy is the original
+        self.assertEqual(os.path.realpath(self.t.find_duplicate(b, None)), os.path.realpath(a))
+
     def test_clash_with_different_content_gets_suffix_and_outside_root_untouched(self):
         self.t.read_text = lambda path: "some words " + self.text
         self.pdf("same.pdf", b"%PDF one", where="unknown_type")

@@ -136,6 +136,10 @@ def find_duplicate(path: str, cfg) -> Optional[str]:
                 p = os.path.join(dp, n)
                 if os.path.realpath(p) == me or not n.lower().endswith(".pdf"):
                     continue
+                # Two identical files waiting side by side: only the later-named one is the duplicate,
+                # otherwise each would call the other the original and both would be held.
+                if os.path.dirname(os.path.realpath(p)) == os.path.dirname(me) and n >= os.path.basename(me):
+                    continue
                 try:
                     if os.path.getsize(p) != size:
                         continue
