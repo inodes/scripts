@@ -6,6 +6,7 @@
     "Drone": "/Volumes/Drone",
     "FCP": "/Volumes/FCP",
     "Lightroom-QNAP": "/Volumes/Lightroom",
+    "Lightroom-local": "~/Lightroom",
     "Download": "/Volumes/Download",
     "Container": "/Volumes/Container",
     "Multimedia": "/Volumes/Multimedia",
