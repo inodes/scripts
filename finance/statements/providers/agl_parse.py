@@ -482,11 +482,10 @@ class AGLBillParser:
 
     @staticmethod
     def standard_name(data: Dict[str, Any], original_path: str) -> str:
-        """AGL_Statement_<service>_<period start>_to_<period end>.pdf (ISO dates); the issue date when no period."""
+        """AGL_Statement_<service>_<ISO issue date>.pdf: one date only, like every other provider.
+        Falls back to the period end when no issue date was read."""
         svc = data.get("service_type") or "electricity"
-        s, e = data.get("period_start"), data.get("period_end")
-        if s and e:
-            return f"AGL_Statement_{svc}_{s}_to_{e}.pdf"
-        if data.get("issue_date"):
-            return f"AGL_Statement_{svc}_{data['issue_date']}.pdf"
+        d = data.get("issue_date") or data.get("period_end")
+        if d:
+            return f"AGL_Statement_{svc}_{d}.pdf"
         return os.path.basename(original_path)

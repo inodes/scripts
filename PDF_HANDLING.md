@@ -52,7 +52,7 @@ with bank lines, put rough rates in `Finance/Data/fx_rates.json` (data, not conf
 `--tolerance`, default 6% for card FX margin). It reports matched / ambiguous / unmatched / no_rate.
 
 ## AGL
-AGL bills are filed by the `agl` provider into `{invoices}/AGL` as `AGL_Statement_<service>_<period start>_to_<period end>.pdf`.
+AGL bills are filed by the `agl` provider into `{invoices}/AGL` as `AGL_Statement_<service>_<issue date>.pdf`.
 The reading is done by `finance/statements/providers/agl_parse.py` (`AGLBillParser`), which `~/repos/tesla` imports
 (its `config.json` `scripts_repo`) to pull usage and rates out of the same bills, so there is one copy of that code.
 Tesla finds the bills through its own `directories.power_invoices`. AGL leaflets and offers are not bills and stay in triage.

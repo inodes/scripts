@@ -2,7 +2,7 @@
 
 The reading itself lives in agl_parse.AGLBillParser (shared with ~/repos/tesla, which imports it
 to get usage and rates out of the same bills). This class only decides what is an AGL bill and where
-and under what name it is filed: {invoices}/AGL/AGL_Statement_<service>_<period start>_to_<end>.pdf
+and under what name it is filed: {invoices}/AGL/AGL_Statement_<service>_<issue date>.pdf
 
 Leaflets and offers from AGL are not bills and are left for triage.
 """
@@ -45,7 +45,7 @@ Issued: 21 Mar 2012
 AGL Retail Energy Limited ABN 21 074 839 464
 """,
     }
-    sample_expect = {"v_statement": "AGL_Statement_electricity_2011-12-22_to_2012-03-20.pdf"}
+    sample_expect = {"v_statement": "AGL_Statement_electricity_2012-03-21.pdf"}
 
     def versions(self, t):
         path = getattr(self, "_path", "")
@@ -65,6 +65,8 @@ AGL Retail Energy Limited ABN 21 074 839 464
         m = re.search(r"Issued:\s*(\d{1,2} [A-Za-z]{3,9} \d{4})", t)  # paper-style bills print "Issued: 21 Mar 2012"
         if m:
             issue = self.parser._parse_flexible_date(m.group(1)) or issue
+        if issue:
+            p["issue_date"] = issue  # the name uses this single date
         return {"issue": _iso(issue or p.get("period_end")),
                 "ref": (p.get("period_start") or "") + "_" + (p.get("period_end") or ""),
                 "total": Decimal(str(total)) if total is not None else None, "stem": "AGL_Statement"}
