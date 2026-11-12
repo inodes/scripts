@@ -21,10 +21,6 @@ DEFAULT_TYPES: List[Dict[str, str]] = [
      "text": r"Australian Taxation Office|Notice of assessment|Individual tax return|Tax return for individuals|PAYG payment summary|Income statement|Division 293"},
     {"name": "shares_ess",
      "text": r"Employee Share Scheme|Shareworks|Solium|Restricted Stock|\bRSU\b|Morgan Stanley at Work"},
-    # AGL bills belong in PDF/AGL: ~/repos/tesla reads and names them there (`tesla sync invoices --provider agl`).
-    # Needs bill wording as well as "AGL" so leaflets and offers are not filed as bills.
-    {"name": "agl", "dir": "AGL",
-     "text": r"(?s)\A(?=.*\bAGL\b)(?=.*(?:Supply period|Bill period|Total amount due|Direct Debit amount|National Metering Identifier))"},
     {"name": "energy_utilities",
      "text": r"\bAGL\b|Energy Australia|Origin Energy|\bkWh\b|Ausgrid|Sydney Water|Council Rates|Rates Notice"},
     {"name": "telecom", "text": r"Vodafone|Telstra|Optus|Aussie Broadband|Internode|\bTPG\b|\bBelong\b"},

@@ -12,6 +12,7 @@ from .commbank import CommBankProvider
 from .workday import WorkdayProvider
 from .aapt import AAPTProvider
 from .apple import AppleProvider
+from .agl import AGLProvider
 from .vendors import AussieBBProvider, TelstraProvider, VodafoneProvider, BunningsProvider, GooglePlayProvider
 
 AVAILABLE_PROVIDERS: List[BasePDFProvider] = [
@@ -25,6 +26,7 @@ AVAILABLE_PROVIDERS: List[BasePDFProvider] = [
     AAPTProvider(),
     AppleProvider(),
     AussieBBProvider(),
+    AGLProvider(),
     TelstraProvider(),
     VodafoneProvider(),
     BunningsProvider(),
