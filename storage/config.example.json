@@ -7,6 +7,9 @@
     "Drone": "/Volumes/Drone",
     "FCP": "/Volumes/FCP",
     "Lightroom-QNAP": "/Volumes/Lightroom",
+    "Download": "/Volumes/Download",
+    "Container": "/Volumes/Container",
+    "Multimedia": "/Volumes/Multimedia",
     "Pictures": "~/Pictures"
   },
   "min_dupe_bytes": 1000000

@@ -31,7 +31,14 @@ DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Spotlight-V100"
 
 
 def load_config(path):
-    with open(os.path.expanduser(path)) as f:
+    path = os.path.expanduser(path)
+    if not os.path.exists(path):
+        here = os.path.dirname(os.path.abspath(__file__))
+        sys.exit(f"Config not found: {path}\nCreate it from the template:\n"
+                 f"  mkdir -p \"{os.path.dirname(path)}\" && "
+                 f"cp \"{here}/config.example.json\" \"{path}\"\n"
+                 "then edit the roots to match your mounted volumes.")
+    with open(path) as f:
         cfg = json.load(f)
     cfg["db_path"] = os.path.expanduser(cfg["db_path"])
     cfg["report_dir"] = os.path.expanduser(cfg["report_dir"])
