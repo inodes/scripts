@@ -32,7 +32,7 @@ A modular repository for local automations and tools. All financial statements, 
 ## Storage Audit (`storage/`)
 
 **[`storage/storage_audit.py`](storage/storage_audit.py) — Read-only audit of files scattered across drives**:
-   - Catalogues the Mac, external drives and QNAP shares into a local SQLite database, finds duplicates (size, partial hash, optional SHA-256), compares Lightroom catalogues with photos on disk, and writes an HTML report. Never moves or deletes anything. See [`storage/README.md`](storage/README.md).
+   - Catalogues the Mac, external drives and QNAP shares into a local SQLite database, finds duplicates (size, partial hash, optional SHA-256), compares Lightroom catalogues with photos on disk, and writes an HTML report. Never moves or deletes anything. Writes a self-contained `index.html` results page with folder drill-down. [`storage/storage_audit_ui.py`](storage/storage_audit_ui.py) is the visual version: a local-only web app (127.0.0.1) to browse, drill down and run the scans from buttons. See [`storage/README.md`](storage/README.md).
 
 ---
 

@@ -5,7 +5,7 @@ Subcommands
   scan    walk each configured root into a local SQLite catalogue
   dupes   find duplicate files (size -> partial hash -> optional full hash)
   lrcat   compare a Lightroom catalogue with photos actually on disk
-  report  write a self-contained HTML report (sizes, kinds, folders, duplicates)
+  report  write a self-contained index.html (overview, drill-down, duplicates, Lightroom)
 
 Nothing here modifies, moves or deletes your files. Settings live in an external
 iCloud config.json (see config.example.json); the database should live on a local disk,
@@ -31,14 +31,7 @@ DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Spotlight-V100"
 
 
 def load_config(path):
-    path = os.path.expanduser(path)
-    if not os.path.exists(path):
-        here = os.path.dirname(os.path.abspath(__file__))
-        sys.exit(f"Config not found: {path}\nCreate it from the template:\n"
-                 f"  mkdir -p \"{os.path.dirname(path)}\" && "
-                 f"cp \"{here}/config.example.json\" \"{path}\"\n"
-                 "then edit the roots to match your mounted volumes.")
-    with open(path) as f:
+    with open(os.path.expanduser(path)) as f:
         cfg = json.load(f)
     cfg["db_path"] = os.path.expanduser(cfg["db_path"])
     cfg["report_dir"] = os.path.expanduser(cfg["report_dir"])
@@ -185,60 +178,15 @@ def table(headers, rows):
 
 
 def cmd_report(cfg):
-    con = db(cfg)
-    os.makedirs(cfg["report_dir"], exist_ok=True)
-    out = []
-    out.append("<h2>Volumes</h2>" + table(["Root", "Files", "Size", "Scanned"],
-        [(r, f"{n:,}", fmt(b), d) for r, d, n, b in con.execute(
-            "SELECT root, finished, nfiles, nbytes FROM scans ORDER BY nbytes DESC")]))
-    out.append("<h2>What is on each root (by kind)</h2>" + table(["Root", "Kind", "Files", "Size"],
-        [(r, k, f"{n:,}", fmt(b)) for r, k, n, b in con.execute(
-            "SELECT root, kind, COUNT(*), SUM(size) FROM files GROUP BY root, kind ORDER BY root, SUM(size) DESC")]))
-    out.append("<h2>Largest top-level folders</h2>" + table(["Root", "Folder", "Files", "Size", "Newest file"],
-        [(r, t, f"{n:,}", fmt(b), datetime.fromtimestamp(m).strftime("%Y-%m-%d")) for r, t, n, b, m in con.execute(
-            "SELECT root, top, COUNT(*), SUM(size), MAX(mtime) FROM files GROUP BY root, top ORDER BY SUM(size) DESC LIMIT 60")]))
-    out.append("<h2>Stale folders (nothing modified in 3+ years, 1 GB+)</h2>" + table(["Root", "Folder", "Size", "Newest file"],
-        [(r, t, fmt(b), datetime.fromtimestamp(m).strftime("%Y-%m-%d")) for r, t, b, m in con.execute(
-            "SELECT root, top, SUM(size), MAX(mtime) FROM files GROUP BY root, top "
-            "HAVING SUM(size)>1e9 AND MAX(mtime)<strftime('%s','now','-3 years') ORDER BY SUM(size) DESC LIMIT 40")]))
-    key = "COALESCE(fhash, phash)"
-    groups = con.execute(f"""SELECT {key} k, size, COUNT(*) c, COUNT(DISTINCT root) vols FROM files
-        WHERE {key} IS NOT NULL GROUP BY k, size HAVING c>1 ORDER BY (c-1)*size DESC""").fetchall()
-    waste = sum((c - 1) * s for _, s, c, _ in groups)
-    verified = "SHA-256 verified" if con.execute("SELECT 1 FROM files WHERE fhash IS NOT NULL LIMIT 1").fetchone() else "partial-hash match (run dupes --full to confirm)"
-    out.append(f"<h2>Duplicates</h2><p>{len(groups):,} groups, {fmt(waste)} reclaimable ({verified}). "
-               f"Top 200 shown; 'Volumes' &gt; 1 means copies on different drives.</p>")
-    rows = []
-    for k, s, c, vols in groups[:200]:
-        locs = con.execute(f"SELECT root, rel FROM files WHERE {key}=? AND size=? LIMIT 4", (k, s)).fetchall()
-        rows.append((fmt(s), c, vols, " | ".join(f"{r}:{p}" for r, p in locs)))
-    out.append(table(["Size", "Copies", "Volumes", "Locations (first 4)"], rows))
-    if con.execute("SELECT 1 FROM lr LIMIT 1").fetchone():
-        # map catalogue paths to roots by prefix, then list on-disk photos not catalogued
-        lrset = {p for (p,) in con.execute("SELECT path FROM lr")}
-        miss = []
-        for root, rel, size in con.execute("SELECT root, rel, size FROM files WHERE kind='photo' AND ext!='png'"):
-            if os.path.join(cfg["roots"][root], rel) not in lrset:
-                miss.append((root, rel, size))
-        by_top = defaultdict(lambda: [0, 0])
-        for root, rel, size in miss:
-            t = (root, rel.split(os.sep)[0]); by_top[t][0] += 1; by_top[t][1] += size
-        out.append(f"<h2>Photos on disk but not in any scanned Lightroom catalogue</h2><p>{len(miss):,} files.</p>" +
-                   table(["Root", "Folder", "Files", "Size"],
-                         [(r, t, f"{v[0]:,}", fmt(v[1])) for (r, t), v in sorted(by_top.items(), key=lambda x: -x[1][1])[:60]]))
-    page = ("<!doctype html><meta charset=utf-8><title>Storage audit</title>"
-            "<style>body{font:14px system-ui;margin:2rem;max-width:1100px}table{border-collapse:collapse;margin:1rem 0;width:100%}"
-            "td,th{border-bottom:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}th{background:#f4f4f4}</style>"
-            f"<h1>Storage audit</h1><p>Generated {datetime.now().strftime('%Y-%m-%d')}</p>" + "".join(out))
-    path = os.path.join(cfg["report_dir"], "storage-audit.html")
-    with open(path, "w") as f:
-        f.write(page)
-    print("report:", path)
+    """Write index.html (overview, drill-down, duplicates, Lightroom) to report_dir."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import storage_audit_ui
+    print("report:", storage_audit_ui.write_index(cfg))
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default="~/iCloud/scripts/storage/config.json")
+    ap.add_argument("--config", default="~/Library/Mobile Documents/com~apple~CloudDocs/Storage/config.json")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan"); s.add_argument("roots", nargs="*", help="limit to these root labels")
     d = sub.add_parser("dupes"); d.add_argument("--full", action="store_true"); d.add_argument("--kind")
