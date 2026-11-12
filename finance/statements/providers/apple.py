@@ -124,6 +124,24 @@ Weborder Number: W000000001
  Special  90.00  9.00  99.00
  Instructions  Total Value (Excl.GST)  Total GST  Total Price (Incl. GST)
         """,
+        "v_email_credit_note": """
+Credit Note
+9 August 2026
+Order ID:ML0000000A-1
+Credit Note Number:000000000003
+AppleCare+
+Monthly Plan
+Cancellation Date: 9 August 2026
+-$2.46
+(Refund)
+-$2.46
+""",
+        "v_email_order": """
+Subtotal A$ 149.00
+Order Total A$ 149.00
+Order Number: W0000000004  |  Ordered on 15/10/2026
+Thanks for your order.
+""",
         "v_email_appstore": """
 Tax Invoice
 
@@ -191,12 +209,17 @@ For a total of A$1,999.00
             return "v_email_applecare"
         if re.search(r"Adjustment Note", t[:300]) and re.search(r"DOCUMENT NO\.\s*\d", t):
             return "v_email_adjust"
-        if (re.match(r"\s*Tax Invoice\s", t) and re.search(r"ORDER ID", t) and re.search(r"DOCUMENT NO\.\s*\d", t)
+        if re.search(r"Credit Note\s+\d{1,2} [A-Z][a-z]+ 20\d\d", t[:200]) and re.search(r"Credit Note Number:\s*\d+", t):
+            return "v_email_credit_note"
+        # (some extractors put the amount lines before the "Tax Invoice" heading)
+        if ((re.match(r"\s*Tax Invoice\s", t) or re.search(r"Tax Invoice\s+APPLE ACCOUNT", t[:800]))
+                and re.search(r"ORDER ID", t) and re.search(r"DOCUMENT NO\.\s*\d", t)
                 and re.search(r"(?m)^DATE\b", t)):
             return "v_email_appstore"
         if re.match(r"\s*Tax Invoice\s", t) and re.search(r"Order ID:\s*[A-Z0-9]+", t) and re.search(r"Document:\s*\d", t):
             return "v_email_appstore_new"
-        if re.search(r"Ordered on:\s*" + _DMY, t) and re.search(r"Order Number:\s*[A-Z]?\d+", t):
+        if re.search(r"Ordered on:?\s*" + _DMY, t) and re.search(r"Order Number:\s*[A-Z]?\d+", t) \
+                and re.search(r"Order Total", t):
             return "v_email_order"
         if ("Billed To" in t[:200] and re.search(r"Order (Number|ID):\s*[A-Z0-9]+", t)
                 and re.search(r"Issue Date:\s*" + _DMY, t)):
@@ -307,7 +330,7 @@ For a total of A$1,999.00
                 data["reconciled"] = sub + tax == tot and tot > 0
             data["filename_stem"] = "Apple_Invoice"
         elif ver == "v_email_itunes":
-            m = re.search(r"Order (?:Number|ID):\s*([A-Z0-9]+)", t)
+            m = re.search(r"Order (?:Number|ID):\s*(?:Order (?:Number|ID):\s*)?([A-Z0-9]{6,})", t)  # labels can be doubled
             ref = m.group(1) if m else None
             m = re.search(r"Issue Date:\s*" + _DMY, t)
             issue = _dmy(m) if m else None
@@ -319,12 +342,23 @@ For a total of A$1,999.00
         elif ver == "v_email_order":
             m = re.search(r"Order Number:\s*([A-Z]?\d+)", t)
             ref = m.group(1) if m else None
-            m = re.search(r"Ordered on:\s*" + _DMY, t)
+            m = re.search(r"Ordered on:?\s*" + _DMY, t)
             issue = _dmy(m) if m else None
             tot = _amount(t, r"Order Total")
             total = tot if tot is not None else total
             data["reconciled"] = tot is not None
             data["filename_stem"] = "Apple_Order_Confirmation"
+            data["email_receipt"] = True
+        elif ver == "v_email_credit_note":
+            m = re.search(r"Credit Note\s+(\d{1,2}) ([A-Z][a-z]+) (20\d\d)", t)
+            issue = _month_date(m.group(2), m.group(1), m.group(3)) if m else None
+            m = re.search(r"Credit Note Number:\s*(\d+)", t)
+            ref = m.group(1) if m else None
+            m = re.search(r"-\s*\$\s*(\d[\d,]*\.\d{2})", t)
+            tot = -_money(m.group(1)) if m else None
+            total = tot if tot is not None else total
+            data["reconciled"] = tot is not None
+            data["filename_stem"] = "Apple_Credit_Note"
             data["email_receipt"] = True
         elif ver in ("v_email_appstore", "v_email_appstore_new"):
             if ver == "v_email_appstore":
@@ -392,6 +426,8 @@ For a total of A$1,999.00
             "v_online_receipt": "Apple_Invoice_2023-09-25_MA00000001.pdf",
             "v_japan_invoice": "Apple_Invoice_2022-09-16_AJ00000001.pdf",
             "v_email_appstore": "Apple_Receipt_2024-06-02_000000000001.pdf",
+            "v_email_credit_note": "Apple_Credit_Note_2026-08-09_000000000003.pdf",
+            "v_email_order": "Apple_Order_Confirmation_2026-10-15_W0000000004.pdf",
             "v_email_appstore_new": "Apple_Receipt_2025-11-10_000000000002.pdf",
         }
         for ver, sample in self.sample_variants.items():
