@@ -354,6 +354,12 @@ def run_batch(
             continue
 
         prov = detect_provider(probe_txt, p, forced_provider=provider_filter if is_single else None)
+        if prov.name == "generic" and len(probe_txt) < 1500:
+            # A cover or advert page ahead of the bill: the two-page probe saw too little, so read it all.
+            full_txt = PDFTextExtractor.extract_text(p, db=db)
+            if full_txt and len(full_txt) > len(probe_txt):
+                probe_txt = full_txt
+                prov = detect_provider(probe_txt, p, forced_provider=provider_filter if is_single else None)
         if not matches_provider_filter(prov.name, prov.doc_type, provider_filter):
             skipped_unrecognised += 1
             if meta_prov:
