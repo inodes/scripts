@@ -61,5 +61,50 @@ class TestPaths(unittest.TestCase):
         self.assertTrue(paths.check_destination(paths.under("data", "pdf_audit.db"), kind="database"))
 
 
+class SharedConfigTests(unittest.TestCase):
+    """~/.config/repos/config.json (via $REPOS_CONFIG here) can set the iCloud root for every repo."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cloud = os.path.join(self._tmp.name, "MyCloud")
+        os.makedirs(self.cloud)
+        self.cfg = os.path.join(self._tmp.name, "repos_config.json")
+        old = os.environ.get("REPOS_CONFIG")
+        os.environ["REPOS_CONFIG"] = self.cfg
+
+        def restore():
+            if old is None:
+                os.environ.pop("REPOS_CONFIG", None)
+            else:
+                os.environ["REPOS_CONFIG"] = old
+        self.addCleanup(restore)
+
+    def _write(self, text):
+        with open(self.cfg, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_shared_file_sets_icloud(self):
+        self._write(json.dumps({"icloud": self.cloud}))
+        self.assertEqual(paths._icloud_root(), self.cloud)
+
+    def test_missing_file_falls_back(self):
+        self.assertEqual(paths.shared_config(), {})
+        self.assertIn(paths._icloud_root(), (paths.ICLOUD_LINK, paths.ICLOUD_REAL))
+
+    def test_malformed_file_falls_back(self):
+        self._write("{oops")
+        self.assertEqual(paths.shared_config(), {})
+        self.assertIn(paths._icloud_root(), (paths.ICLOUD_LINK, paths.ICLOUD_REAL))
+
+    def test_dangling_folder_falls_back(self):
+        self._write(json.dumps({"icloud": os.path.join(self._tmp.name, "does-not-exist")}))
+        self.assertIn(paths._icloud_root(), (paths.ICLOUD_LINK, paths.ICLOUD_REAL))
+
+    def test_non_object_json_is_ignored(self):
+        self._write("[1, 2]")
+        self.assertEqual(paths.shared_config(), {})
+
+
 if __name__ == "__main__":
     unittest.main()
