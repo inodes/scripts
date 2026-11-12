@@ -90,7 +90,7 @@ class AppleProvider(BasePDFProvider):
     scan_dirs: List[str] = [paths.under("invoices", "Apple"), paths.get("pdf")]
     source_domains: List[str] = ["apple.com", "store.apple.com"]
     filename_template: Optional[str] = None  # built in default_filename (depends on format)
-    format_versions: List[str] = ["v_retail_receipt", "v_online_classic", "v_online_receipt"]
+    format_versions: List[str] = ["v_japan_receipt", "v_retail_receipt", "v_online_classic", "v_online_receipt"]
 
     sample_variants: Dict[str, str] = {
         "v_retail_receipt": """
@@ -231,6 +231,8 @@ For a total of A$1,999.00
             return "v_online_classic"
         if re.search(r"\*R\d{10}\*", t) and re.search(r"^\s*Apple (Store, )?[A-Z]", t, re.M) and "Total" in t:
             return "v_retail_receipt"
+        if "Apple Japan" in t and "領収証" in t and re.search(r"\*R\d{10}\*", t) and re.search(r"合計\s*¥", t):
+            return "v_japan_receipt"
         return None
 
     def detect(self, text: str, pdf_path: str = "") -> bool:
@@ -248,7 +250,17 @@ For a total of A$1,999.00
         ref: Optional[str] = None
         total = Decimal("0.00")
 
-        if ver == "v_retail_receipt":
+        if ver == "v_japan_receipt":  # in-store receipt from an Apple Store in Japan (JPY)
+            m = re.search(r"(20\d\d)\.(\d{2})\.(\d{2})\b", t)
+            issue = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+            m = re.search(r"\*(R\d{10})\*", t)
+            ref = m.group(1) if m else None
+            m = re.search(r"合計\s*¥\s*([\d,]+)", t)
+            total = _money(m.group(1)) if m else total
+            data["currency"] = "JPY"
+            data["filename_stem"] = "Apple_Store_Receipt_JP"
+            data["reconciled"] = m is not None
+        elif ver == "v_retail_receipt":
             m = re.search(r"\b([A-Z][a-z]+) (\d{1,2}), (20\d\d)", t)
             issue = _month_date(*m.groups()) if m else None
             m = re.search(r"\*(R\d{10})\*", t)
@@ -256,10 +268,23 @@ For a total of A$1,999.00
             # Some extractors split digits ("$ 1 21.00"), so allow spaces inside the amount.
             m = (re.search(r"Total Tender\s+\$\s*([\d, ]*\d ?\.\d{2})", t)
                  or re.search(r"(?m)^\s*Total\s+\$\s*([\d, ]*\d ?\.\d{2})\s*$", t))  # overseas stores
-            total = _money(m.group(1)) if m else total
-            data["filename_stem"] = "Apple_Store_Receipt"
+            if not m:  # refund to card shows the tender in brackets: "Total Tender ($ 63.80)"
+                r = re.search(r"Total Tender\s+\(\$\s*([\d, ]*\d ?\.\d{2})\)", t)
+                if r:
+                    total = -_money(r.group(1))
+                    data["filename_stem"] = "Apple_Store_Refund"
+                    data["reconciled"] = True
+                    m = r
+                else:  # $0 repair invoice: only the item row "GST Ex. Price GST Total" carries amounts
+                    r = re.search(r"GST Ex\. Price\s+GST\s+Total\s+\$\s*[\d., ]+?\s+\$\s*[\d., ]+?\s+\$\s*([\d, ]*\d ?\.\d{2})", t)
+                    if r:
+                        total = _money(r.group(1))
+                        m = r
+            else:
+                total = _money(m.group(1))
+            data["filename_stem"] = data.get("filename_stem") or "Apple_Store_Receipt"
             # A tender line proves the receipt is complete, even at $0.00 (exchange, trade-in, pickup).
-            data["reconciled"] = m is not None
+            data["reconciled"] = data.get("reconciled") or m is not None
             if "Refunded to original tender" in t:
                 data["filename_stem"] = "Apple_Store_Refund"
                 data["reconciled"] = True
