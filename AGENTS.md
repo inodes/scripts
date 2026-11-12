@@ -165,6 +165,7 @@ Banks, utilities, and merchants periodically tweak or redesign their PDF templat
 
 ## 3a. File Locations (mandatory)
 
+- **One shared, machine-local bootstrap file** (optional): `~/.config/repos/config.json` (override with `$REPOS_CONFIG`), e.g. `{"icloud": "~/iCloud"}`. It holds locations only (never settings or data), is deliberately not in iCloud, and `statements/paths.py` is its only reader: other repos (`tesla`, `agl-audit`) import `paths.ICLOUD` rather than carry their own copy. A missing, malformed or dangling file falls back to `~/iCloud`, then the Mobile Documents path.
 - **Never hard-code an iCloud (or any user) path.** Use `statements/paths.py`: `paths.get("pdf")`, `paths.statements("HSBC")`, `paths.payslips(...)`, `paths.under("reports", "index.html")`. All of them derive from `config.json` -> `directories`.
 - **Call `paths.check_destination(dest)` before any move or write.** It refuses loose files in container folders (iCloud root, Finance, Statements, Payslips, Shares), anything inside the repo, and databases in iCloud.
 - The SQLite index is local (`directories.data`); generated HTML goes to `directories.reports`; neither goes in a statements folder.

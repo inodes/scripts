@@ -1,6 +1,9 @@
 """Single source of truth for every file location the toolkit reads or writes.
 
-Nothing else in the codebase should spell out an iCloud path. All locations derive from the
+Nothing else in the codebase should spell out an iCloud path. The iCloud root itself can be set once
+for every repo in the optional, machine-local shared file ~/.config/repos/config.json
+({"icloud": "~/iCloud"}; $REPOS_CONFIG overrides its location). It holds locations only, never
+settings or data, and is not read from iCloud because it says where iCloud is. All locations derive from the
 "directories" section of the user's external config.json, overlaid on the defaults below:
 
     icloud      iCloud Drive root: ~/iCloud (symlink) when present, else the Mobile Documents path
@@ -26,7 +29,29 @@ from typing import Dict, Optional
 
 ICLOUD_REAL = "~/Library/Mobile Documents/com~apple~CloudDocs"
 ICLOUD_LINK = "~/iCloud"  # preferred: a symlink to ICLOUD_REAL (ln -s "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ~/iCloud)
-ICLOUD = ICLOUD_LINK if os.path.isdir(os.path.expanduser(ICLOUD_LINK)) else ICLOUD_REAL
+SHARED_CONFIG = "~/.config/repos/config.json"  # optional bootstrap shared by every repo; machine-local
+
+
+def shared_config() -> Dict[str, object]:
+    """Contents of the shared bootstrap file ($REPOS_CONFIG or ~/.config/repos/config.json); {} if absent or unreadable."""
+    path = os.path.abspath(os.path.expanduser(os.environ.get("REPOS_CONFIG") or SHARED_CONFIG))
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _icloud_root() -> str:
+    """iCloud Drive root: shared file's "icloud" if it is an existing folder, else ~/iCloud, else the real path."""
+    configured = shared_config().get("icloud")
+    if isinstance(configured, str) and configured and os.path.isdir(os.path.expanduser(configured)):
+        return configured
+    return ICLOUD_LINK if os.path.isdir(os.path.expanduser(ICLOUD_LINK)) else ICLOUD_REAL
+
+
+ICLOUD = _icloud_root()
 PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../finance
 REPO_DIR = os.path.dirname(PACKAGE_DIR)
 

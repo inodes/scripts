@@ -12,7 +12,8 @@ code spells that path out; it is found in this order:
 3. a git-ignored `config.json` beside the script: either full settings or just a
    pointer, `{"config_file": "<path to the real config>"}`
 4. `<iCloud>/<repo name>/<section>/config.json`, with the iCloud root taken from
-   `finance/statements/paths.py` (the one place that defines it)
+   `finance/statements/paths.py` (the one place that defines it, optionally set for all repos
+   by `~/.config/repos/config.json`, e.g. `{"icloud": "~/iCloud"}`)
 
 Copy `config.example.json` to the real location and edit the roots; the local pointer file is optional. The catalogue
 database stays local (`~/Library/Application Support/storage_audit/`), never in
