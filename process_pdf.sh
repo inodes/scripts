@@ -34,6 +34,7 @@
 #   PROCESS_PDF_LOG_DIR    log folder (default ~/Library/Logs/Hazel); log file is process_pdf.log
 #   PROCESS_PDF_HANDLERS   space-separated handler paths, to override discovery/order
 #   PROCESS_PDF_STRICT     see above
+#   PROCESS_PDF_MIN_AGE=N  seconds a file must be unchanged before it is processed (default 60; --no-wait skips it)
 #   PROCESS_PDF_TRIAGE=0   disable the triage step (unclaimed files stay where they are)
 #
 # Compatible with the stock macOS bash 3.2.
@@ -86,6 +87,19 @@ skip_reason() {
     s1="$(file_size "$f")"
     [[ -n "$s1" && "$s1" != "0" ]] || { echo "empty_or_still_downloading"; return; }
     (( NO_WAIT == 1 )) && { echo ""; return; }
+    # Settle delay: never touch a file until it has sat unchanged for MIN_AGE seconds (default 60),
+    # so downloads, syncs and in-progress saves are finished before Hazel's run moves anything.
+    local now m c newest left
+    now=$(date +%s)
+    m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "$now")
+    c=$(stat -c %Z "$f" 2>/dev/null || stat -f %c "$f" 2>/dev/null || echo "$now")
+    [[ "$m" =~ ^[0-9]+$ ]] || m="$now"; [[ "$c" =~ ^[0-9]+$ ]] || c="$now"
+    newest=$(( m > c ? m : c ))
+    left=$(( MIN_AGE - (now - newest) ))
+    if (( left > 0 )); then
+        sleep "$left"
+        s1="$(file_size "$f")"
+    fi
     sleep 1
     s2="$(file_size "$f")"
     [[ "$s1" == "$s2" ]] || { echo "still_being_written"; return; }
@@ -138,6 +152,7 @@ find_python() {
 
 DRY_RUN=0
 NO_WAIT=0
+MIN_AGE="${PROCESS_PDF_MIN_AGE:-60}"   # seconds a file must be unchanged before it is processed
 FILES=()
 for arg in "$@"; do
     case "$arg" in

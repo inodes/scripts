@@ -28,6 +28,9 @@ or `process_pdf.sh --sweep --resort`.
 - `process_pdf.sh --sweep [--apply] [--resort] [--dir D]`: run everything waiting through the full flow.
   **Dry run unless `--apply`.**
 - `process_pdf.sh [--dry-run] FILE.pdf`: what Hazel runs.
+  Hazel itself should wait one minute before it runs the script: in the Hazel rule add the condition
+  *Date Last Modified is not in the last 1 minute* (Hazel only re-checks the folder periodically, so the rule then fires on the next pass).
+  The script also guards itself: it holds back until a file has been unchanged for `PROCESS_PDF_MIN_AGE` seconds (default 60, `--no-wait` skips it).
 
 ## Configuration (config.json, outside the repo)
 `directories`: `pdf`, `unsorted`, `unknown_type`, `needs_review`. `triage`: `stale_days`, `types`
