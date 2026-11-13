@@ -365,6 +365,28 @@ def run_job(title, argv):
     return True
 
 
+def reveal(body):
+    """Open a folder (or select a file) in Finder. Only paths inside a configured root are allowed."""
+    if sys.platform != "darwin":
+        return "Open in Finder only works when the UI runs on macOS"
+    roots = {k: os.path.realpath(v) for k, v in CFG["roots"].items()}
+    if body.get("root") in roots:
+        target = os.path.join(roots[body["root"]], str(body.get("rel") or ""))
+    elif body.get("abs"):
+        target = str(body["abs"])
+    else:
+        return "no location given"
+    target = os.path.realpath(target)
+    if not any(target == r or target.startswith(r.rstrip("/") + "/") for r in roots.values()):
+        return "that location is outside your configured roots"
+    while not os.path.exists(target) and target not in roots.values():
+        target = os.path.dirname(target)   # deleted or renamed since the scan: open the nearest folder
+    if not os.path.exists(target):
+        return "drive not mounted"
+    subprocess.run(["open", "-R", target] if os.path.isfile(target) else ["open", target], check=False)
+    return True
+
+
 def start_action(body):
     cmd = body.get("cmd")
     if cmd == "scan":
@@ -451,6 +473,9 @@ class Handler(BaseHTTPRequestHandler):
             if r is True:
                 return self._send(200, {"started": True})
             return self._send(409 if r is False else 400, {"error": "a job is already running" if r is False else r})
+        if self.path == "/api/reveal":
+            r = reveal(body)
+            return self._send(200 if r is True else 400, {"ok": True} if r is True else {"error": r})
         if self.path == "/api/report":
             return self._send(200, {"path": write_index(CFG)})
         self._send(404, {"error": "not found"})
@@ -489,7 +514,7 @@ pre{background:#111;color:#cfe;padding:12px;border-radius:8px;max-height:340px;o
 .loc{font:12px ui-monospace,monospace;color:var(--mute);cursor:copy;word-break:break-all}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px}
 .cov{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bad);margin-top:5px;min-width:60px}.cov i{display:block;background:var(--good)}
 </style>
-<header><h1>Storage audit</h1><nav id="nav"></nav><span style="flex:1"></span><span id="jobstate" class="pill" hidden></span></header>
+<header><h1>Storage audit</h1><nav id="nav"></nav><span style="flex:1"></span><button id="finder" class="btn alt sm" hidden></button><span id="jobstate" class="pill" hidden></span></header>
 <main id="view"></main>
 <script>
 const STATIC=typeof DATA!=='undefined';
@@ -516,6 +541,12 @@ const get=u=>{if(!STATIC)return fetch(u).then(r=>r.json());
   return R({})};
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'X-Audit':'1','Content-Type':'application/json'},body:JSON.stringify(b)}).then(async r=>({ok:r.ok,...await r.json()}));
 const runJob=b=>post('/api/run',b).then(r=>{if(!r.ok)alert(r.error);poll()});
+let here=null;
+function setHere(h){here=h;const b=$('#finder');b.hidden=!h;if(!h)return;b.textContent=STATIC?'Copy path':'Open in Finder';
+  b.title=h.label||'';b.onclick=()=>reveal(h)}
+function reveal(h){if(STATIC){const p=h.abs||((CFGJ.roots[h.root]||'')+(h.rel?'/'+h.rel:''));navigator.clipboard&&navigator.clipboard.writeText(p);return}
+  post('/api/reveal',h.abs?{abs:h.abs}:{root:h.root,rel:h.rel||''}).then(r=>{if(!r.ok)alert(r.error)})}
+function finderBtn(h,txt){return el('button',{class:'btn sm alt',title:STATIC?'Copy full path':'Open in Finder',onclick:e=>{e.stopPropagation();reveal(h)}},txt||(STATIC?'Copy path':'Finder'))}
 function nav(){$('#nav').replaceChildren(...TABS.map(t=>el('button',{class:t===tab?'on':'',onclick:()=>{tab=t;nav();render()}},t)))}
 /* ---- colour key: one place defines what each file-type colour means ---- */
 function swatch(k){return el('span',{class:'sw',style:`background:var(${COLORS[k]||'--other'})`})}
@@ -529,7 +560,7 @@ function mixBar(mix,pct){const e=Object.entries(mix||{}).sort((a,b)=>b[1][1]-a[1
 function indexBanner(){const bad=S.roots.filter(r=>r.indexed===false);if(STATIC||!bad.length)return null;
   return el('div',{class:'card warn'},`Folder index not built for ${bad.map(r=>r.root).join(', ')}. Overview and Browse are slow until it is. `,el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:bad.map(r=>r.root)})},'Build index now'))}
 async function render(){
-  view.replaceChildren(el('p',{class:'mute'},'Loading…'));
+  setHere(null);view.replaceChildren(el('p',{class:'mute'},'Loading…'));
   if(!CFGJ)CFGJ=await get('/api/config');
   S=await get('/api/summary');
   ({Overview:rOverview,Browse:rBrowse,Duplicates:rDupes,Lightroom:rLr,Aperture:rAperture,Run:rRun})[tab]();
@@ -542,7 +573,7 @@ function rOverview(){
   const g=el('div',{class:'grid'});
   S.roots.forEach(r=>g.append(el('div',{class:'card'},el('h3',{},r.root),el('div',{class:'mute'},`${num(r.files)} files · scanned ${r.scanned}${r.mounted?'':' · not mounted now'}`),
     el('div',{class:'big'},fmt(r.bytes)),kindBar(r.kinds,r.bytes),legend(r.kinds,k=>{browse={root:r.root,path:'',kind:k,all:false,skip:true};tab='Browse';nav();render()}),
-    el('div',{class:'row2'},el('button',{class:'btn alt',onclick:()=>{browse={root:r.root,path:'',kind:null,all:false,skip:true};tab='Browse';nav();render()}},'Browse folders')))));
+    el('div',{class:'row2'},el('button',{class:'btn alt',onclick:()=>{browse={root:r.root,path:'',kind:null,all:false,skip:true};tab='Browse';nav();render()}},'Browse folders'),finderBtn({root:r.root,rel:''})))));
   S.unscanned.forEach(r=>g.append(el('div',{class:'card'},el('h3',{},r.root),el('div',{class:'mute'},r.mounted?'Not scanned yet':'Not mounted'))));
   out.push(g);view.replaceChildren(...out.filter(Boolean))}
 /* ---- Browse: every folder is reachable; colour = file type ---- */
@@ -563,6 +594,7 @@ async function rBrowse(){
     d.children.map(c=>el('tr',{class:c.dir?'row':'',onclick:c.dir?()=>{browse.path=(browse.path?browse.path+'/':'')+c.name;browse.all=false;rBrowse()}:null},
       el('td',{},c.dir?'📁 ':[swatch(c.kind||'other'),''],c.name,c.dir?mixBar(c.mix,100*c.bytes/max):mixBar({[c.kind||'other']:[1,c.bytes]},100*c.bytes/max)),
       el('td',{class:'n'},num(c.files)),el('td',{class:'n'},fmt(c.bytes)),el('td',{class:'n mute'},c.newest))));
+  setHere({root:browse.root,rel:browse.path,label:browse.root+(browse.path?'/'+browse.path:'')});
   const R=S.roots.find(r=>r.root===browse.root)||{};
   const notes=[d.truncated?el('p',{class:'mute'},`The static report stops at ${DATA.depth} folder levels. Use storage_audit_ui.py for every level.`):null,
     hops.length?el('p',{class:'mute'},`Skipped through single-folder levels: ${hops.join(' / ')}`):null,
@@ -576,7 +608,7 @@ async function rDupes(){
   if(!d.groups){view.replaceChildren(head,el('div',{class:'card'},'No duplicate groups yet. On the Run tab, scan then run Find duplicates.'));return}
   const t=el('table',{},el('tr',{},el('th',{class:'n'},'Size'),el('th',{class:'n'},'Copies'),el('th',{class:'n'},'Drives'),el('th',{},'Locations (click to copy a path)')),
     d.top.map(g=>el('tr',{},el('td',{class:'n'},fmt(g.size)),el('td',{class:'n'},g.copies),el('td',{class:'n'},g.volumes),
-      el('td',{},g.locations.map(l=>{const full=(CFGJ.roots[l.root]||'')+'/'+l.rel;return el('div',{class:'loc',title:'Copy full path',onclick:()=>navigator.clipboard&&navigator.clipboard.writeText(full)},`${l.root}: ${l.rel}`)})))));
+      el('td',{},g.locations.map(l=>{const full=(CFGJ.roots[l.root]||'')+'/'+l.rel;return el('div',{style:'display:flex;gap:8px;align-items:baseline'},el('span',{class:'loc',title:'Copy full path',onclick:()=>navigator.clipboard&&navigator.clipboard.writeText(full)},`${l.root}: ${l.rel}`),finderBtn({abs:full},STATIC?null:'Show'))})))));
   view.replaceChildren(head,el('div',{class:'card'},t))}
 /* ---- Lightroom: every catalogue found, read each one ---- */
 async function rLr(){
@@ -585,7 +617,7 @@ async function rLr(){
   const row=x=>el('tr',{},el('td',{},el('b',{},x.name),el('div',{class:'loc'},x.where)),el('td',{class:'n'},x.size==null?'':fmt(x.size)),el('td',{class:'n mute'},x.modified||''),
     el('td',{},x.loaded?[el('span',{class:'tag good'},'read '+x.loaded),el('div',{class:'mute'},`${num(x.photos)} photos · ${num(x.on_scanned)} on scanned drives`),
       x.missing?el('span',{class:'tag bad'},`${num(x.missing)} missing from disk`):null]:el('span',{class:'tag'},'not read yet'),x.found?null:el('span',{class:'tag'},'outside scanned drives')),
-    el('td',{},STATIC?null:el('button',{class:'btn sm alt',onclick:()=>runJob({cmd:'lrcat',catalogues:[x.path]})},x.loaded?'Re-read':'Read')));
+    el('td',{style:'white-space:nowrap'},finderBtn({abs:x.path},STATIC?null:'Show'),' ',STATIC?null:el('button',{class:'btn sm alt',onclick:()=>runJob({cmd:'lrcat',catalogues:[x.path]})},x.loaded?'Re-read':'Read')));
   const tbl=rows=>el('table',{},el('tr',{},el('th',{},'Catalogue'),el('th',{class:'n'},'Size'),el('th',{class:'n'},'Modified'),el('th',{},'Status'),el('th',{},'')),rows.map(row));
   const out=[el('div',{class:'row2'},el('div',{class:'big'},num(main.length)),el('span',{class:'mute'},`Lightroom catalogue${main.length===1?'':'s'} found${back.length?` (+${back.length} backups)`:''}`),
     !STATIC&&main.length?el('button',{class:'btn',onclick:()=>runJob({cmd:'lrcat',all:true})},'Read all catalogues'):null)];
@@ -611,7 +643,7 @@ async function rAperture(){
   if(!L.length){view.replaceChildren(el('div',{class:'card'},'No Aperture libraries found yet. Scan and index first; libraries are recognised by their Database/apdb/Library.apdb.'));return}
   const tot=L.reduce((a,l)=>a+((l.bytes||{}).total||0),0),masters=L.reduce((a,l)=>a+(l.masters||0),0);
   const cards=L.map(l=>el('div',{class:'card'},el('div',{class:'row2'},el('h3',{style:'margin:0'},l.loaded?el('a',{style:'color:var(--acc);cursor:pointer',onclick:()=>{ap={lib:l.path,name:l.name,trail:[],cur:null};rAperture()}},l.name):l.name),
-      l.loaded?null:el('span',{class:'tag'},'not read yet'),STATIC||l.loaded?null:el('button',{class:'btn sm',onclick:()=>runJob({cmd:'aperture',libraries:[l.path]})},'Read library')),
+      finderBtn({abs:l.path},STATIC?null:'Show'),l.loaded?null:el('span',{class:'tag'},'not read yet'),STATIC||l.loaded?null:el('button',{class:'btn sm',onclick:()=>runJob({cmd:'aperture',libraries:[l.path]})},'Read library')),
     el('div',{class:'loc'},(l.root||'')+': '+(l.rel||'')),
     l.bytes?[el('div',{class:'big'},fmt(l.bytes.total)),apBar(l.bytes),el('div',{class:'legend'},['masters','previews','thumbnails','database'].map(k=>el('span',{},el('span',{class:'sw',style:`background:var(${APC[k]})`}),`${k} ${fmt(l.bytes[k])}`)))]:null,
     l.loaded?el('div',{style:'margin-top:8px'},`${num(l.masters)} photos${l.from?` · ${l.from} to ${l.to}`:''}`,
@@ -624,6 +656,7 @@ async function rApLib(){
   const d=await get(`/api/aperture/tree?lib=${enc(ap.lib)}&parent=${enc(parent)}`);
   const crumbs=el('div',{class:'crumbs'},el('a',{onclick:()=>{ap={lib:null,trail:[],cur:null};rAperture()}},'Aperture libraries'),' / ',
     el('a',{onclick:()=>{ap.trail=[];ap.cur=null;rAperture()}},ap.name),...ap.trail.map((t,i)=>[' / ',el('a',{onclick:()=>{ap.trail=ap.trail.slice(0,i+1);ap.cur=t;rAperture()}},t.name)]));
+  setHere({abs:ap.lib,label:ap.name});
   const max=Math.max(1,...d.children.map(c=>c.bytes));
   const lrOn=d.lightroom_loaded;
   const kids=d.children.length?el('div',{class:'card'},el('table',{},el('tr',{},el('th',{},'Folder / project'),el('th',{class:'n'},'Photos'),el('th',{class:'n'},'Size'),el('th',{class:'n'},'From'),el('th',{class:'n'},'To'),lrOn?el('th',{},'In Lightroom'):null),

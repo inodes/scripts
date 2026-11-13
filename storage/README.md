@@ -32,7 +32,10 @@ file-type colour key you can click to filter, colour mix bars per folder), Dupli
 Lightroom (every `.lrcat` found, with Read buttons and photos on disk that a catalogue
 does not reference), Aperture (every `.aplibrary`: size breakdown, projects, photos and
 how many are already in Lightroom) and Run (scan, index, lrcat, aperture, dupes and the
-HTML report, with a live job log). The UI opens the catalogue read-only, so it can stay
+HTML report, with a live job log).
+An "Open in Finder" button at the top opens whatever folder you are viewing (macOS only, and only
+inside your configured roots); catalogues, libraries and duplicate paths have their own
+"Show" buttons. The static report offers "Copy path" instead. The UI opens the catalogue read-only, so it can stay
 open while you scan, but stop it if a scan fails with "database is locked".
 
 ## Command line
