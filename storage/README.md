@@ -35,6 +35,10 @@ how many are already in Lightroom) and Run (scan, index, lrcat, aperture, dupes 
 HTML report, with a live job log).
 File-type colours, mix bars and the sunburst need the folder index (`index`, or Build index in the UI; new scans
 build it automatically). Charts default to a distinct colour per folder and can be switched to colour by file type.
+Free space: each drive card and the top of Browse show how full the volume is (this scan / other files / free),
+with a warning below 20% free and a banner on Overview below 15%. Charts at the top of a drive add "Used by other
+files" and "Free space" slices (toggle: Show free space). Capacity is read live when the drive is mounted and
+remembered from the last scan otherwise.
 Anything the UI starts shows a progress bar under the header with what it is doing.
 Browse can show the folder you are in as a Table, Bars, Pie or Treemap (colour is the file type; click a
 slice or tile to drill in). The Sunburst button in the top bar toggles a ring chart of the whole drive with

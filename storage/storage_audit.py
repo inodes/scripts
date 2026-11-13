@@ -23,6 +23,18 @@ from urllib.parse import quote
 _PROG = {"on": os.environ.get("STORAGE_AUDIT_PROGRESS") == "1", "t": 0.0, "step": None, "steps": None}
 
 
+def space_of(path):
+    """Capacity of the volume holding `path`: {total, free, used, dev} in bytes, or None if unreadable."""
+    try:
+        st = os.statvfs(path)
+        dev = os.stat(path).st_dev
+    except OSError:
+        return None
+    total = st.f_blocks * st.f_frsize
+    free = st.f_bavail * st.f_frsize
+    return {"total": total, "free": free, "used": max(0, total - st.f_bfree * st.f_frsize), "dev": dev}
+
+
 def set_step(i, n):
     _PROG["step"], _PROG["steps"] = i, n
 
@@ -129,6 +141,8 @@ def db(cfg):
     CREATE INDEX IF NOT EXISTS i_size ON files(size);
     CREATE INDEX IF NOT EXISTS i_kind ON files(root, kind);
     CREATE TABLE IF NOT EXISTS scans(root TEXT PRIMARY KEY, finished TEXT, nfiles INTEGER, nbytes INTEGER);
+    -- last-seen capacity of the volume a root lives on, so unmounted drives and the static report still show it
+    CREATE TABLE IF NOT EXISTS space(root TEXT PRIMARY KEY, total INTEGER, free INTEGER, used INTEGER, seen TEXT);
     CREATE TABLE IF NOT EXISTS lr(path TEXT PRIMARY KEY, catalogue TEXT);  -- legacy, superseded by lrfiles
     -- one row per (catalogue, photo path) so several catalogues can reference the same photo
     CREATE TABLE IF NOT EXISTS lrfiles(catalogue TEXT, path TEXT, name_lc TEXT, size INTEGER,
@@ -210,8 +224,14 @@ def cmd_scan(cfg, only):
         con.executemany("INSERT OR REPLACE INTO files VALUES(?,?,?,?,?,?,?,?,?)", rows)
         con.execute("INSERT OR REPLACE INTO scans VALUES(?,?,?,?)",
                     (label, datetime.now(timezone.utc).strftime("%Y-%m-%d"), n, total))
+        sp = space_of(root)
+        if sp:
+            con.execute("INSERT OR REPLACE INTO space VALUES(?,?,?,?,?)",
+                        (label, sp["total"], sp["free"], sp["used"], datetime.now(timezone.utc).strftime("%Y-%m-%d")))
         con.commit()
         print(f"  done: {n:,} files, {total/1e9:,.1f} GB")
+        if sp:
+            print(f"  volume: {sp['free']/1e9:,.1f} GB free of {sp['total']/1e9:,.1f} GB ({100*sp['used']/(sp['total'] or 1):.0f}% full)")
         build_index(con, label)
         if unreadable:
             print(f"  {len(unreadable):,} folder(s) could not be read (not counted); first few:")

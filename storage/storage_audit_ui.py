@@ -71,7 +71,21 @@ def api_summary():
     for v in by_root.values():
         v.sort(key=lambda x: -x["bytes"])
     unscanned = [r for r in CFG["roots"] if r not in indexed]
+    stored = {r: (t, f, u, d) for r, t, f, u, d in query("SELECT root, total, free, used, seen FROM space", optional=True)}
+    space, devs = {}, {}
+    for r in list(indexed) + unscanned:
+        live = sa.space_of(CFG["roots"][r]) if r in CFG["roots"] and os.path.isdir(CFG["roots"][r]) else None
+        if live:
+            space[r] = {"total": live["total"], "free": live["free"], "used": live["used"], "live": True}
+            devs.setdefault(("dev", live["dev"]), []).append(r)
+        elif r in stored:
+            t, f, u, d = stored[r]
+            space[r] = {"total": t, "free": f, "used": u, "live": False, "seen": d}
+            devs.setdefault(("old", t, u), []).append(r)
+    volumes = [{"roots": rs, "total": space[rs[0]]["total"], "free": space[rs[0]]["free"], "used": space[rs[0]]["used"],
+                "live": space[rs[0]]["live"]} for rs in devs.values()]
     return {
+        "space": space, "volumes": volumes,
         "roots": [{"root": r, "scanned": d, "files": n, "bytes": b, "kinds": by_root[r], "indexed": indexed[r],
                    "mounted": os.path.isdir(CFG["roots"].get(r, ""))} for r, d, n, b in scans],
         "unscanned": [{"root": r, "mounted": os.path.isdir(CFG["roots"][r])} for r in unscanned],
@@ -625,6 +639,16 @@ function setHere(h){here=h;const b=$('#finder');b.hidden=!h;if(!h)return;b.textC
 function reveal(h){if(STATIC){const p=h.abs||((CFGJ.roots[h.root]||'')+(h.rel?'/'+h.rel:''));navigator.clipboard&&navigator.clipboard.writeText(p);return}
   post('/api/reveal',h.abs?{abs:h.abs}:{root:h.root,rel:h.rel||''}).then(r=>{if(!r.ok)alert(r.error)})}
 function finderBtn(h,txt){return el('button',{class:'btn sm alt',title:STATIC?'Copy full path':'Open in Finder',onclick:e=>{e.stopPropagation();reveal(h)}},txt||(STATIC?'Copy path':'Finder'))}
+/* ---- free space: how full the volume is, and where this scan sits within it ---- */
+const fullPct=sp=>sp&&sp.total?Math.round(100*sp.used/sp.total):0;
+const lowSpace=sp=>sp&&sp.total&&sp.free/sp.total<0.10?'bad':(sp&&sp.total&&sp.free/sp.total<0.20?'warn':'');
+function spaceBar(rootRow,sp,compact){if(!sp||!sp.total)return null;const t=sp.total,sc=Math.min(rootRow.bytes||0,sp.used),oth=Math.max(0,sp.used-sc),lv=lowSpace(sp);
+  const seg=(w,c,ti)=>el('i',{title:ti,style:`width:${100*w/t}%;background:${c}`});
+  return el('div',{},el('div',{class:'stack',style:'margin:6px 0 4px'},seg(sc,'var(--acc)',`This scan: ${fmt(sc)}`),seg(oth,'var(--system)',`Other files on the volume: ${fmt(oth)}`),seg(sp.free,'var(--good)',`Free: ${fmt(sp.free)}`)),
+    el('div',{style:'font-size:12.5px'},el('b',{},fmt(sp.free)+' free'),` of ${fmt(sp.total)} · ${fullPct(sp)}% full`,lv?el('span',{class:'tag '+(lv==='bad'?'bad':'')},lv==='bad'?'almost full':'getting full'):null,
+      sp.live?null:el('span',{class:'mute'},` · last seen ${sp.seen||'earlier'}`)),
+    compact?null:el('div',{class:'legend',style:'margin-top:4px'},el('span',{},el('span',{class:'sw',style:'background:var(--acc)'}),'this scan'),el('span',{},el('span',{class:'sw',style:'background:var(--system)'}),'other files on the volume'),el('span',{},el('span',{class:'sw',style:'background:var(--good)'}),'free')))}
+let showFree=pref('free')!=='0',chartScope='this folder';
 /* ---- charts: bars / pie / treemap of the folder you are in, plus a sunburst of where it sits ---- */
 const SVGNS='http://www.w3.org/2000/svg';
 function sv(t,a={},...k){const e=document.createElementNS(SVGNS,t);for(const[x,v]of Object.entries(a)){if(x.startsWith('on'))e[x]=v;else e.setAttribute(x,v)}for(const c of k.flat())if(c!==null&&c!==undefined&&c!==false)e.append(c instanceof Node?c:document.createTextNode(c));return e}
@@ -632,7 +656,7 @@ const kcol=k=>`var(${COLORS[k]||'--other'})`;
 /* colour mode: 'item' gives every slice/tile/arc its own hue so neighbours are easy to tell apart; 'type' colours by file type */
 let colorMode=pref('colour')||'item';
 const hue=i=>(i*137.508)%360;
-const icol=i=>i.other?'var(--other)':(colorMode==='type'?kcol(i.kind):`hsl(${Math.round(hue(i.idx||0))} 65% 52%)`);
+const icol=i=>i.free?'var(--good)':i.inert?'var(--system)':i.other?'var(--other)':(colorMode==='type'?kcol(i.kind):`hsl(${Math.round(hue(i.idx||0))} 65% 52%)`);
 const sunCol=(c,level,t)=>c.other?'var(--other)':(colorMode==='type'?kcol(domKind(c.mix)):`hsl(${Math.round(hue(t))} 62% ${Math.min(70,44+(level-1)*6)}%)`);
 const domKind=mix=>{let b=null,m=-1;for(const[k,v]of Object.entries(mix||{}))if(v[1]>m){m=v[1];b=k}return b||'other'};
 const pctOf=(b,t)=>t?(100*b/t<0.1?'<0.1':(100*b/t).toFixed(1)):'0';
@@ -640,22 +664,27 @@ function pref(k,v){try{if(v===undefined)return localStorage.getItem('sa_'+k);loc
 function chartItems(d,max){const L=d.children.slice(0,max).map(c=>({name:c.name,dir:c.dir,bytes:c.bytes,files:c.files,mix:c.mix,kind:c.dir?domKind(c.mix):(c.kind||'other')}));
   const rest=d.children.slice(max),rb=rest.reduce((s,c)=>s+c.bytes,0);
   if(rest.length&&rb>0)L.push({name:`other (${num(rest.length)} items)`,other:true,bytes:rb,files:rest.reduce((s,c)=>s+c.files,0),kind:'other'});
-  const items=L.filter(i=>i.bytes>0);items.forEach((i,k)=>i.idx=k);return {items,total:items.reduce((s,i)=>s+i.bytes,0)}}
-function tip(i,t){return `${i.name}\n${fmt(i.bytes)} · ${num(i.files)} file${i.files===1?'':'s'} · ${pctOf(i.bytes,t)}% of this folder`+(i.dir?'':'\n(click to show in Finder)')}
-function openItem(i){if(i.other)return;const rel=(browse.path?browse.path+'/':'')+i.name;
+  const items=L.filter(i=>i.bytes>0);items.forEach((i,k)=>i.idx=k);chartScope='this folder';
+  const R=S&&S.roots.find(r=>r.root===browse.root),sp=S&&S.space&&S.space[browse.root];
+  if(showFree&&sp&&sp.total&&R&&!browse.path&&!browse.kind){const sc=items.reduce((a,i)=>a+i.bytes,0),oth=Math.max(0,sp.used-Math.max(sc,R.bytes||0));chartScope='the volume';
+    if(oth>0)items.push({name:'Used by other files (not in this scan)',inert:true,bytes:oth,files:0,kind:'other'});
+    if(sp.free>0)items.push({name:'Free space',inert:true,free:true,bytes:sp.free,files:0,kind:'other'})}
+  return {items,total:items.reduce((s,i)=>s+i.bytes,0)}}
+function tip(i,t){return i.inert?`${i.name}\n${fmt(i.bytes)} · ${pctOf(i.bytes,t)}% of the volume`:`${i.name}\n${fmt(i.bytes)} · ${num(i.files)} file${i.files===1?'':'s'} · ${pctOf(i.bytes,t)}% of ${chartScope}`+(i.dir?'':'\n(click to show in Finder)')}
+function openItem(i){if(i.other||i.inert)return;const rel=(browse.path?browse.path+'/':'')+i.name;
   if(i.dir){browse.path=rel;browse.all=false;rBrowse()}else if(!STATIC)reveal({root:browse.root,rel})}
 function polar(cx,cy,r,a){return [cx+r*Math.sin(a),cy-r*Math.cos(a)]}
 function arcPath(cx,cy,r0,r1,a0,a1){if(a1-a0>=2*Math.PI-1e-4)a1=a0+2*Math.PI-1e-4;const big=a1-a0>Math.PI?1:0,p=(r,a)=>polar(cx,cy,r,a).map(v=>v.toFixed(2)).join(' ');
   return `M${p(r1,a0)} A${r1} ${r1} 0 ${big} 1 ${p(r1,a1)} L${p(r0,a1)} A${r0} ${r0} 0 ${big} 0 ${p(r0,a0)} Z`}
 function chartBars(d){const {items,total}=chartItems(d,25),max=Math.max(1,...items.map(i=>i.bytes));
-  return el('div',{},items.map(i=>el('div',{style:'display:flex;align-items:center;gap:10px;margin:5px 0;'+(i.other?'':'cursor:pointer'),title:tip(i,total),onclick:()=>openItem(i)},
+  return el('div',{},items.map(i=>el('div',{style:'display:flex;align-items:center;gap:10px;margin:5px 0;'+((i.other||i.inert)?'':'cursor:pointer'),title:tip(i,total),onclick:()=>openItem(i)},
     el('div',{style:'width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'},i.dir?'📁 ':'',i.name),
     el('div',{style:'flex:1'},el('div',{style:`height:14px;border-radius:4px;min-width:3px;width:${100*i.bytes/max}%;background:${icol(i)}`}),i.mix?mixBar(i.mix,100*i.bytes/max):mixBar({[i.kind]:[1,i.bytes]},100*i.bytes/max)),
     el('div',{style:'width:150px;text-align:right;white-space:nowrap'},fmt(i.bytes),el('span',{class:'mute'},' · '+pctOf(i.bytes,total)+'%')))))}
 function chartPie(d){const {items,total}=chartItems(d,12),cx=150,cy=150,s=sv('svg',{viewBox:'0 0 300 300',style:'width:300px;height:300px;flex:none'});let a=0;
-  items.forEach(i=>{const da=2*Math.PI*i.bytes/total;s.append(sv('path',{d:arcPath(cx,cy,70,142,a,a+da),fill:icol(i),stroke:'var(--card)','stroke-width':2,style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total))));a+=da});
+  items.forEach(i=>{const da=2*Math.PI*i.bytes/total;s.append(sv('path',{d:arcPath(cx,cy,70,142,a,a+da),fill:icol(i),stroke:'var(--card)','stroke-width':2,style:(i.other||i.inert)?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total))));a+=da});
   s.append(sv('text',{x:cx,y:cy-2,'text-anchor':'middle','font-size':17,'font-weight':600,fill:'var(--ink)'},fmt(total)),sv('text',{x:cx,y:cy+16,'text-anchor':'middle','font-size':11,fill:'var(--mute)'},'this folder'));
-  return el('div',{style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap'},s,el('table',{style:'flex:1;min-width:280px'},items.map(i=>el('tr',{class:i.other?'':'row',onclick:()=>openItem(i)},
+  return el('div',{style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap'},s,el('table',{style:'flex:1;min-width:280px'},items.map(i=>el('tr',{class:(i.other||i.inert)?'':'row',onclick:()=>openItem(i)},
     el('td',{},el('span',{class:'sw',style:`background:${icol(i)}`}),i.dir?'📁 ':'',i.name),el('td',{class:'n'},fmt(i.bytes)),el('td',{class:'n mute'},pctOf(i.bytes,total)+'%')))))}
 function squarify(items,x,y,w,h){const tot=items.reduce((s,i)=>s+i.bytes,0),out=[],rest=items.map(i=>({i,a:i.bytes/tot*w*h}));
   while(rest.length){const side=Math.min(w,h);let row=[],s=0,worst=Infinity;
@@ -665,7 +694,7 @@ function squarify(items,x,y,w,h){const tot=items.reduce((s,i)=>s+i.bytes,0),out=
     else{const rh=s/w;let xx=x;for(const r of row){const rw=r.a/rh;out.push({i:r.i,x:xx,y,w:rw,h:rh});xx+=rw}y+=rh;h-=rh}}
   return out}
 function chartTreemap(d){const {items,total}=chartItems(d,60),W=1000,H=520,s=sv('svg',{viewBox:`0 0 ${W} ${H}`,style:'width:100%;height:auto;display:block'});
-  squarify(items,0,0,W,H).forEach(r=>{const i=r.i,g=sv('g',{style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total)));
+  squarify(items,0,0,W,H).forEach(r=>{const i=r.i,g=sv('g',{style:(i.other||i.inert)?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total)));
     g.append(sv('rect',{x:r.x,y:r.y,width:Math.max(0,r.w),height:Math.max(0,r.h),fill:icol(i),opacity:.88,stroke:'var(--card)','stroke-width':2}));
     if(i.mix&&r.h>14&&r.w>10){const t=Object.values(i.mix).reduce((q,v)=>q+v[1],0)||1;let xx=r.x;Object.entries(i.mix).sort((p,q)=>q[1][1]-p[1][1]).forEach(([k,v])=>{const ww=r.w*v[1]/t;g.append(sv('rect',{x:xx,y:r.y+r.h-6,width:ww,height:6,fill:kcol(k)}));xx+=ww})}
     if(r.w>90&&r.h>38){const n=Math.max(4,Math.floor(r.w/7.5)),nm=i.name.length>n?i.name.slice(0,n-1)+'…':i.name,st={fill:'#fff',stroke:'rgba(0,0,0,.5)','stroke-width':3,'paint-order':'stroke','font-size':13};
@@ -673,7 +702,7 @@ function chartTreemap(d){const {items,total}=chartItems(d,60),W=1000,H=520,s=sv(
     s.append(g)});return s}
 const VIEWS=[['table','Table'],['bars','Bars'],['pie','Pie'],['treemap','Treemap']];
 function viewSwitch(){return el('div',{class:'key'},el('span',{class:'mute'},'View:'),VIEWS.map(([v,l])=>el('button',{class:'chip'+(browse.view===v?' on':''),onclick:()=>{browse.view=v;pref('view',v);rBrowse()}},l)),
-    el('span',{class:'mute',style:'margin-left:14px'},'Colour charts:'),[['item','by folder / item'],['type','by file type']].map(([m,l])=>el('button',{class:'chip'+(colorMode===m?' on':''),onclick:()=>{colorMode=m;pref('colour',m);rBrowse()}},l)))}
+    el('button',{class:'chip'+(showFree?' on':''),style:'margin-left:14px',title:'Add the volume\'s free space to charts at the top of a drive',onclick:()=>{showFree=!showFree;pref('free',showFree?'1':'0');rBrowse()}},'Show free space'),el('span',{class:'mute',style:'margin-left:14px'},'Colour charts:'),[['item','by folder / item'],['type','by file type']].map(([m,l])=>el('button',{class:'chip'+(colorMode===m?' on':''),onclick:()=>{colorMode=m;pref('colour',m);rBrowse()}},l)))}
 /* sunburst: whole drive from the centre outwards; the folder you are in is outlined */
 function sunStatic(root,path,kind){const T=DATA.tree[root]||{},chain=path?path.split('/'):[],maxd=Math.min(8,Math.max(3,chain.length+2));
   const rowsOf=p=>(T[p]||[]).filter(c=>c.dir&&(!kind||(c.mix||{})[kind])).map(c=>({name:c.name,bytes:kind?c.mix[kind][1]:c.bytes,mix:c.mix})).sort((a,b)=>b.bytes-a.bytes);
@@ -698,10 +727,10 @@ async function drawSun(){const w=$('#sunwrap');if(tab!=='Browse'||!sunOpen||!bro
   s.append(sv('circle',{cx,cy,r:r0-2,fill:'var(--card)',stroke:'var(--line)',style:'cursor:pointer',onclick:()=>{browse.path='';browse.all=false;rBrowse()}},sv('title',{},'Go to the top of '+browse.root)),
     sv('text',{x:cx,y:cy+4,'text-anchor':'middle','font-size':11,fill:'var(--ink)',style:'pointer-events:none'},browse.root.length>9?browse.root.slice(0,8)+'…':browse.root));
   const find=p=>{let n=D.tree;for(const c of (p?p.split('/'):[]).map((_,i,a)=>a.slice(0,i+1).join('/'))){n=(n.kids||[]).find(x=>x.path===c);if(!n)return null}return n};
-  const lines=[el('div',{},el('b',{},browse.root),' ',fmt(D.total),el('span',{class:'mute'},browse.kind?` (${KIND_LABEL[browse.kind]} only)`:''))];
+  const spl=(S.space||{})[browse.root],lines=[spl?el('div',{style:'max-width:420px;margin-bottom:6px'},spaceBar(S.roots.find(r=>r.root===browse.root)||{bytes:0},spl,true)):null,el('div',{},el('b',{},browse.root),' ',fmt(D.total),el('span',{class:'mute'},browse.kind?` (${KIND_LABEL[browse.kind]} only)`:''))];
   chain.forEach((_,i)=>{const p=chain.slice(0,i+1).join('/'),n=find(p);if(n)lines.push(el('div',{style:`padding-left:${(i+1)*12}px;cursor:pointer`,onclick:()=>{browse.path=p;browse.all=false;rBrowse()}},'↳ ',chain[i],' ',el('span',{class:'mute'},`${fmt(n.bytes)} · ${pctOf(n.bytes,D.total)}% of the drive`)))});
   w.replaceChildren(el('div',{class:'card',style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:0'},s,
-    el('div',{style:'flex:1;min-width:260px'},el('h3',{},'Where you are'),...lines,el('p',{class:'mute'},'Centre is the top of the drive; each ring is one folder level deeper. Faded arcs are elsewhere; your path is outlined. Click any arc to jump there.'),colorMode==='item'?el('div',{class:'legend'},D.tree.kids.filter(c=>!c.other).map((c,k)=>el('span',{style:'cursor:pointer',title:'Go to '+c.name,onclick:()=>{browse.path=c.path;browse.all=false;rBrowse()}},el('span',{class:'sw',style:`background:${sunCol(c,1,k)}`}),`${c.name} ${fmt(c.bytes)}`))):legend(Object.entries(D.tree.kids.reduce((m,c)=>{if(c.mix)for(const[k,v]of Object.entries(c.mix))m[k]=(m[k]||0)+v[1];return m},{})).map(([kind,bytes])=>({kind,bytes})).sort((a,b)=>b.bytes-a.bytes))))) }
+    el('div',{style:'flex:1;min-width:260px'},el('h3',{},'Where you are'),...lines.filter(Boolean),el('p',{class:'mute'},'Centre is the top of the drive; each ring is one folder level deeper. Faded arcs are elsewhere; your path is outlined. Click any arc to jump there.'),colorMode==='item'?el('div',{class:'legend'},D.tree.kids.filter(c=>!c.other).map((c,k)=>el('span',{style:'cursor:pointer',title:'Go to '+c.name,onclick:()=>{browse.path=c.path;browse.all=false;rBrowse()}},el('span',{class:'sw',style:`background:${sunCol(c,1,k)}`}),`${c.name} ${fmt(c.bytes)}`))):legend(Object.entries(D.tree.kids.reduce((m,c)=>{if(c.mix)for(const[k,v]of Object.entries(c.mix))m[k]=(m[k]||0)+v[1];return m},{})).map(([kind,bytes])=>({kind,bytes})).sort((a,b)=>b.bytes-a.bytes))))) }
 
 function sunBtn(){const b=$('#sunbtn');b.hidden=tab!=='Browse';b.textContent='Sunburst '+(sunOpen?'▾':'▸');b.onclick=()=>{sunOpen=!sunOpen;pref('sun',sunOpen?'1':'0');sunBtn();drawSun()}}
 function nav(){$('#nav').replaceChildren(...TABS.map(t=>el('button',{class:t===tab?'on':'',onclick:()=>{tab=t;nav();render()}},t)))}
@@ -724,14 +753,17 @@ async function render(){
 }
 function rOverview(){
   const tot=S.roots.reduce((a,r)=>a+r.bytes,0),files=S.roots.reduce((a,r)=>a+r.files,0);
-  const out=[indexBanner(),el('div',{class:'row2'},el('div',{class:'big'},fmt(tot)),el('span',{class:'mute'},`${num(files)} files across ${S.roots.length} scanned roots`)),
+  const vols=S.volumes||[],freeAll=vols.reduce((a,v)=>a+v.free,0),totAll=vols.reduce((a,v)=>a+v.total,0),low=vols.filter(v=>v.total&&v.free/v.total<0.15);
+  const out=[indexBanner(),el('div',{class:'row2'},el('div',{class:'big'},fmt(tot)),el('span',{class:'mute'},`${num(files)} files across ${S.roots.length} scanned roots`),
+      vols.length?el('span',{class:'pill',title:'Free space across distinct volumes'},`${fmt(freeAll)} free of ${fmt(totAll)} on ${vols.length} volume${vols.length===1?'':'s'}`):null),
+    low.length?el('div',{class:'card warn'},low.map(v=>el('div',{},'⚠ ',el('b',{},v.roots.join(' + ')),` is ${Math.round(100*v.used/v.total)}% full with only ${fmt(v.free)} free`+(v.live?'':' (last seen)')))):null,
     key(null,k=>{browse={...browse,root:browse.root||(S.roots[0]||{}).root,path:'',kind:k};tab='Browse';nav();render()})];
   if(!S.roots.length)out.push(el('div',{class:'card'},'Nothing scanned yet. Go to ',el('b',{},'Run'),' and start a scan.'));
   const g=el('div',{class:'grid'});
   S.roots.forEach(r=>g.append(el('div',{class:'card'},el('h3',{},r.root),el('div',{class:'mute'},`${num(r.files)} files · scanned ${r.scanned}${r.mounted?'':' · not mounted now'}`),
-    el('div',{class:'big'},fmt(r.bytes)),kindBar(r.kinds,r.bytes),legend(r.kinds,k=>{browse={root:r.root,path:'',kind:k,all:false,skip:true};tab='Browse';nav();render()}),
+    el('div',{class:'big'},fmt(r.bytes)),kindBar(r.kinds,r.bytes),legend(r.kinds,k=>{browse={root:r.root,path:'',kind:k,all:false,skip:true};tab='Browse';nav();render()}),spaceBar(r,(S.space||{})[r.root]),
     el('div',{class:'row2'},el('button',{class:'btn alt',onclick:()=>{browse={root:r.root,path:'',kind:null,all:false,skip:true};tab='Browse';nav();render()}},'Browse folders'),finderBtn({root:r.root,rel:''})))));
-  S.unscanned.forEach(r=>g.append(el('div',{class:'card'},el('h3',{},r.root),el('div',{class:'mute'},r.mounted?'Not scanned yet':'Not mounted'))));
+  S.unscanned.forEach(r=>g.append(el('div',{class:'card'},el('h3',{},r.root),el('div',{class:'mute'},r.mounted?'Not scanned yet':'Not mounted'),spaceBar({bytes:0},(S.space||{})[r.root]))));
   out.push(g);view.replaceChildren(...out.filter(Boolean))}
 /* ---- Browse: every folder is reachable; colour = file type ---- */
 async function rBrowse(){
@@ -763,7 +795,7 @@ async function rBrowse(){
     hops.length?el('p',{class:'mute'},`Skipped through single-folder levels: ${hops.join(' / ')}`):null,
     d.total>d.children.length?el('p',{},`Showing the biggest ${num(d.children.length)} of ${num(d.total)} items. `,el('button',{class:'btn sm',onclick:()=>{browse.all=true;rBrowse()}},'Show all')):null,
     !STATIC&&R.indexed===false?el('p',{class:'mute'},'Folder index not built for this drive, so this is slow and cannot filter by type. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index')):null];
-  view.replaceChildren(...[!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains'))].filter(Boolean),
+  view.replaceChildren(...[!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),el('div',{style:'max-width:520px'},spaceBar(R,(S.space||{})[browse.root],true))].filter(Boolean),
     viewSwitch(),key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},(()=>{try{return browse.view==='bars'?chartBars(d):browse.view==='pie'?chartPie(d):browse.view==='treemap'?chartTreemap(d):t}catch(e){console.error(e);return el('p',{class:'mute'},'Could not draw this view: '+e.message)}})()));drawSun().catch(e=>console.error(e))}
 async function rDupes(){
   const d=await get('/api/dupes');
