@@ -120,6 +120,52 @@ def api_tree(root, path, kind="", limit=500):
     return {"root": root, "path": p, "children": kids, "total": len(kids), "indexed": False}
 
 
+def api_sunburst(root, path="", kind=""):
+    """Nested folder sizes from the top of the drive, for the sunburst. Folders under 2% of the
+    drive are folded into 'other', except the ones on the current path."""
+    if not is_indexed(root):
+        return {"indexed": False}
+    chain = [x for x in path.strip("/").split("/") if x]
+    maxd = min(8, max(3, len(chain) + 2))
+    if kind:
+        r = query("SELECT bytes FROM kinds WHERE root=? AND kind=?", (root, kind))
+    else:
+        r = query("SELECT nbytes FROM scans WHERE root=?", (root,))
+    total = r[0][0] if r else 0
+    thr = total * 0.02
+
+    def rows(parent):
+        out = []
+        for name, b, mix in query("SELECT name, bytes, mix FROM dirs WHERE root=? AND parent=? ORDER BY bytes DESC",
+                                  (root, parent)):
+            m = json.loads(mix) if mix else {}
+            if kind:
+                if kind not in m:
+                    continue
+                b = m[kind][1]
+            out.append((name, b, m))
+        out.sort(key=lambda x: -x[1])
+        return out
+
+    def build(parent, pbytes, level):
+        kept = []
+        for name, b, m in rows(parent):
+            on = level <= len(chain) and parent == "/".join(chain[:level - 1]) and name == chain[level - 1]
+            if on or (b >= thr and len(kept) < 8):
+                kept.append((name, b, m))
+        kids = []
+        for name, b, m in kept:
+            p = f"{parent}/{name}" if parent else name
+            kids.append({"name": name, "path": p, "bytes": b, "mix": m, "kids": build(p, b, level + 1) if level < maxd else []})
+        rest = pbytes - sum(k[1] for k in kept)
+        if rest > 0 and kids:
+            kids.append({"name": "other", "other": True, "bytes": rest, "kids": []})
+        return kids
+
+    return {"indexed": True, "total": total, "depth": maxd,
+            "tree": {"name": root, "path": "", "bytes": total, "kids": build("", total, 1)}}
+
+
 def api_dupes():
     key = "COALESCE(fhash, phash)"
     groups = query(f"""SELECT {key}, size, COUNT(*), COUNT(DISTINCT root) FROM files
@@ -443,6 +489,10 @@ class Handler(BaseHTTPRequestHandler):
                 if q.get("root") not in CFG["roots"]:
                     return self._send(400, {"error": "unknown root"})
                 return self._send(200, api_tree(q["root"], q.get("path", ""), q.get("kind", ""), int(q.get("limit", 500))))
+            if u.path == "/api/sunburst":
+                if q.get("root") not in CFG["roots"]:
+                    return self._send(400, {"error": "unknown root"})
+                return self._send(200, api_sunburst(q["root"], q.get("path", ""), q.get("kind", "")))
             if u.path == "/api/dupes":
                 return self._send(200, api_dupes())
             if u.path == "/api/orphans":
@@ -491,7 +541,7 @@ PAGE = r"""<!doctype html><html lang="en-AU"><meta charset="utf-8"><meta name="v
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,sans-serif;background:var(--bg);color:var(--ink)}
 header{display:flex;gap:16px;align-items:center;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:2}
 h1{font-size:16px;margin:0 12px 0 0}nav button{background:none;border:0;padding:8px 12px;color:var(--mute);font:inherit;cursor:pointer;border-bottom:2px solid transparent}
-nav button.on{color:var(--ink);border-color:var(--acc)}main{padding:24px;max-width:1240px;margin:0 auto}
+nav button.on{color:var(--ink);border-color:var(--acc)}main,#sunwrap{padding:24px;max-width:1240px;margin:0 auto}#sunwrap{padding-bottom:0}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}.grid .card{margin:0}
 .card.warn{border-color:var(--archive)}.card h3{margin:0 0 2px;font-size:15px}.mute{color:var(--mute)}.big{font-size:22px;font-weight:600}
@@ -514,7 +564,8 @@ pre{background:#111;color:#cfe;padding:12px;border-radius:8px;max-height:340px;o
 .loc{font:12px ui-monospace,monospace;color:var(--mute);cursor:copy;word-break:break-all}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px}
 .cov{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bad);margin-top:5px;min-width:60px}.cov i{display:block;background:var(--good)}
 </style>
-<header><h1>Storage audit</h1><nav id="nav"></nav><span style="flex:1"></span><button id="finder" class="btn alt sm" hidden></button><span id="jobstate" class="pill" hidden></span></header>
+<header><h1>Storage audit</h1><nav id="nav"></nav><span style="flex:1"></span><button id="sunbtn" class="btn alt sm" hidden></button><button id="finder" class="btn alt sm" hidden></button><span id="jobstate" class="pill" hidden></span></header>
+<div id="sunwrap" hidden></div>
 <main id="view"></main>
 <script>
 const STATIC=typeof DATA!=='undefined';
@@ -522,7 +573,7 @@ const KINDS=['photo','video','audio','document','archive','app/system','lightroo
 const KIND_LABEL={photo:'Photo',video:'Video',audio:'Audio',document:'Document',archive:'Archive','app/system':'App / system',lightroom:'Lightroom',other:'Other'};
 const COLORS={photo:'--photo',video:'--video',audio:'--audio',document:'--document',archive:'--archive','app/system':'--system',lightroom:'--lightroom',other:'--other'};
 const TABS=STATIC?['Overview','Browse','Duplicates','Lightroom','Aperture']:['Overview','Browse','Duplicates','Lightroom','Aperture','Run'];
-let tab='Overview',S=null,CFGJ=null,browse={root:null,path:'',kind:null,all:false,skip:true},ap={lib:null,trail:[],cur:null},lrScope='';
+let sunOpen=pref('sun')!=='0',tab='Overview',S=null,CFGJ=null,browse={root:null,path:'',kind:null,all:false,skip:true,view:pref('view')||'table'},ap={lib:null,trail:[],cur:null},lrScope='';
 const $=s=>document.querySelector(s),view=$('#view'),enc=encodeURIComponent;
 const fmt=b=>{const u=['B','KB','MB','GB','TB'];let i=0;b=b||0;while(b>=1024&&i<4){b/=1024;i++}return (i?b.toFixed(1):b)+' '+u[i]};
 const num=n=>(n||0).toLocaleString('en-AU');
@@ -531,6 +582,7 @@ const get=u=>{if(!STATIC)return fetch(u).then(r=>r.json());
   const x=new URL(u,'http://x'),q=Object.fromEntries(x.searchParams),P=x.pathname,R=v=>Promise.resolve(v);
   if(P==='/api/summary')return R(DATA.summary);if(P==='/api/config')return R(DATA.config);if(P==='/api/dupes')return R(DATA.dupes);
   if(P==='/api/orphans')return R(DATA.orphans);if(P==='/api/catalogues')return R(DATA.catalogues);if(P==='/api/aperture')return R(DATA.aperture);
+  if(P==='/api/sunburst')return R(sunStatic(q.root,q.path||'',q.kind||''));
   if(P==='/api/job')return R({running:false,title:'',log:[],code:null});
   if(P==='/api/aperture/tree')return R({children:((DATA.ap_tree||{})[q.lib]||{})[q.parent||'']||[],lightroom_loaded:DATA.aperture.lightroom_loaded});
   if(P==='/api/aperture/masters')return R({total:0,masters:[],static:true});
@@ -547,6 +599,79 @@ function setHere(h){here=h;const b=$('#finder');b.hidden=!h;if(!h)return;b.textC
 function reveal(h){if(STATIC){const p=h.abs||((CFGJ.roots[h.root]||'')+(h.rel?'/'+h.rel:''));navigator.clipboard&&navigator.clipboard.writeText(p);return}
   post('/api/reveal',h.abs?{abs:h.abs}:{root:h.root,rel:h.rel||''}).then(r=>{if(!r.ok)alert(r.error)})}
 function finderBtn(h,txt){return el('button',{class:'btn sm alt',title:STATIC?'Copy full path':'Open in Finder',onclick:e=>{e.stopPropagation();reveal(h)}},txt||(STATIC?'Copy path':'Finder'))}
+/* ---- charts: bars / pie / treemap of the folder you are in, plus a sunburst of where it sits ---- */
+const SVGNS='http://www.w3.org/2000/svg';
+function sv(t,a={},...k){const e=document.createElementNS(SVGNS,t);for(const[x,v]of Object.entries(a)){if(x.startsWith('on'))e[x]=v;else e.setAttribute(x,v)}for(const c of k.flat())if(c!==null&&c!==undefined&&c!==false)e.append(c instanceof Node?c:document.createTextNode(c));return e}
+const kcol=k=>`var(${COLORS[k]||'--other'})`;
+const domKind=mix=>{let b=null,m=-1;for(const[k,v]of Object.entries(mix||{}))if(v[1]>m){m=v[1];b=k}return b||'other'};
+const pctOf=(b,t)=>t?(100*b/t<0.1?'<0.1':(100*b/t).toFixed(1)):'0';
+function pref(k,v){try{if(v===undefined)return localStorage.getItem('sa_'+k);localStorage.setItem('sa_'+k,v)}catch(e){return null}}
+function chartItems(d,max){const L=d.children.slice(0,max).map(c=>({name:c.name,dir:c.dir,bytes:c.bytes,files:c.files,mix:c.mix,kind:c.dir?domKind(c.mix):(c.kind||'other')}));
+  const rest=d.children.slice(max),rb=rest.reduce((s,c)=>s+c.bytes,0);
+  if(rest.length&&rb>0)L.push({name:`other (${num(rest.length)} items)`,other:true,bytes:rb,files:rest.reduce((s,c)=>s+c.files,0),kind:'other'});
+  const items=L.filter(i=>i.bytes>0);return {items,total:items.reduce((s,i)=>s+i.bytes,0)}}
+function tip(i,t){return `${i.name}\n${fmt(i.bytes)} · ${num(i.files)} file${i.files===1?'':'s'} · ${pctOf(i.bytes,t)}% of this folder`+(i.dir?'':'\n(click to show in Finder)')}
+function openItem(i){if(i.other)return;const rel=(browse.path?browse.path+'/':'')+i.name;
+  if(i.dir){browse.path=rel;browse.all=false;rBrowse()}else if(!STATIC)reveal({root:browse.root,rel})}
+function polar(cx,cy,r,a){return [cx+r*Math.sin(a),cy-r*Math.cos(a)]}
+function arcPath(cx,cy,r0,r1,a0,a1){if(a1-a0>=2*Math.PI-1e-4)a1=a0+2*Math.PI-1e-4;const big=a1-a0>Math.PI?1:0,p=(r,a)=>polar(cx,cy,r,a).map(v=>v.toFixed(2)).join(' ');
+  return `M${p(r1,a0)} A${r1} ${r1} 0 ${big} 1 ${p(r1,a1)} L${p(r0,a1)} A${r0} ${r0} 0 ${big} 0 ${p(r0,a0)} Z`}
+function chartBars(d){const {items,total}=chartItems(d,25),max=Math.max(1,...items.map(i=>i.bytes));
+  return el('div',{},items.map(i=>el('div',{style:'display:flex;align-items:center;gap:10px;margin:5px 0;'+(i.other?'':'cursor:pointer'),title:tip(i,total),onclick:()=>openItem(i)},
+    el('div',{style:'width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'},i.dir?'📁 ':'',i.name),
+    el('div',{style:`flex:1`},i.mix?mixBar(i.mix,100*i.bytes/max):mixBar({[i.kind]:[1,i.bytes]},100*i.bytes/max)),
+    el('div',{style:'width:150px;text-align:right;white-space:nowrap'},fmt(i.bytes),el('span',{class:'mute'},' · '+pctOf(i.bytes,total)+'%')))))}
+function chartPie(d){const {items,total}=chartItems(d,12),cx=150,cy=150,s=sv('svg',{viewBox:'0 0 300 300',style:'width:300px;height:300px;flex:none'});let a=0;
+  items.forEach(i=>{const da=2*Math.PI*i.bytes/total;s.append(sv('path',{d:arcPath(cx,cy,70,142,a,a+da),fill:kcol(i.kind),stroke:'var(--card)','stroke-width':2,style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total))));a+=da});
+  s.append(sv('text',{x:cx,y:cy-2,'text-anchor':'middle','font-size':17,'font-weight':600,fill:'var(--ink)'},fmt(total)),sv('text',{x:cx,y:cy+16,'text-anchor':'middle','font-size':11,fill:'var(--mute)'},'this folder'));
+  return el('div',{style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap'},s,el('table',{style:'flex:1;min-width:280px'},items.map(i=>el('tr',{class:i.other?'':'row',onclick:()=>openItem(i)},
+    el('td',{},swatch(i.kind),i.dir?'📁 ':'',i.name),el('td',{class:'n'},fmt(i.bytes)),el('td',{class:'n mute'},pctOf(i.bytes,total)+'%')))))}
+function squarify(items,x,y,w,h){const tot=items.reduce((s,i)=>s+i.bytes,0),out=[],rest=items.map(i=>({i,a:i.bytes/tot*w*h}));
+  while(rest.length){const side=Math.min(w,h);let row=[],s=0,worst=Infinity;
+    const wo=(r,ss)=>{const mx=Math.max(...r.map(q=>q.a)),mn=Math.min(...r.map(q=>q.a));return Math.max(side*side*mx/(ss*ss),ss*ss/(side*side*mn))};
+    while(rest.length){const c=rest[0],nr=[...row,c],ns=s+c.a,wn=wo(nr,ns);if(row.length&&wn>worst)break;row=nr;s=ns;worst=wn;rest.shift()}
+    if(w>=h){const rw=s/h;let yy=y;for(const r of row){const rh=r.a/rw;out.push({i:r.i,x,y:yy,w:rw,h:rh});yy+=rh}x+=rw;w-=rw}
+    else{const rh=s/w;let xx=x;for(const r of row){const rw=r.a/rh;out.push({i:r.i,x:xx,y,w:rw,h:rh});xx+=rw}y+=rh;h-=rh}}
+  return out}
+function chartTreemap(d){const {items,total}=chartItems(d,60),W=1000,H=520,s=sv('svg',{viewBox:`0 0 ${W} ${H}`,style:'width:100%;height:auto;display:block'});
+  squarify(items,0,0,W,H).forEach(r=>{const i=r.i,g=sv('g',{style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total)));
+    g.append(sv('rect',{x:r.x,y:r.y,width:Math.max(0,r.w),height:Math.max(0,r.h),fill:kcol(i.kind),opacity:.88,stroke:'var(--card)','stroke-width':2}));
+    if(i.mix&&r.h>14&&r.w>10){const t=Object.values(i.mix).reduce((q,v)=>q+v[1],0)||1;let xx=r.x;Object.entries(i.mix).sort((p,q)=>q[1][1]-p[1][1]).forEach(([k,v])=>{const ww=r.w*v[1]/t;g.append(sv('rect',{x:xx,y:r.y+r.h-6,width:ww,height:6,fill:kcol(k)}));xx+=ww})}
+    if(r.w>90&&r.h>38){const n=Math.max(4,Math.floor(r.w/7.5)),nm=i.name.length>n?i.name.slice(0,n-1)+'…':i.name,st={fill:'#fff',stroke:'rgba(0,0,0,.5)','stroke-width':3,'paint-order':'stroke','font-size':13};
+      g.append(sv('text',{...st,x:r.x+7,y:r.y+19,'font-weight':600},(i.dir?'📁 ':'')+nm),sv('text',{...st,x:r.x+7,y:r.y+35,'font-size':11},`${fmt(i.bytes)} · ${pctOf(i.bytes,total)}%`))}
+    s.append(g)});return s}
+const VIEWS=[['table','Table'],['bars','Bars'],['pie','Pie'],['treemap','Treemap']];
+function viewSwitch(){return el('div',{class:'key'},el('span',{class:'mute'},'View:'),VIEWS.map(([v,l])=>el('button',{class:'chip'+(browse.view===v?' on':''),onclick:()=>{browse.view=v;pref('view',v);rBrowse()}},l)))}
+/* sunburst: whole drive from the centre outwards; the folder you are in is outlined */
+function sunStatic(root,path,kind){const T=DATA.tree[root]||{},chain=path?path.split('/'):[],maxd=Math.min(8,Math.max(3,chain.length+2));
+  const rowsOf=p=>(T[p]||[]).filter(c=>c.dir&&(!kind||(c.mix||{})[kind])).map(c=>({name:c.name,bytes:kind?c.mix[kind][1]:c.bytes,mix:c.mix})).sort((a,b)=>b.bytes-a.bytes);
+  const total=(T['']||[]).filter(c=>!kind||(c.dir?(c.mix||{})[kind]:c.kind===kind)).reduce((s,c)=>s+(kind&&c.dir?c.mix[kind][1]:c.bytes),0),thr=total*0.02;
+  const build=(parent,pb,level)=>{const kept=[];for(const r of rowsOf(parent)){const on=level<=chain.length&&parent===chain.slice(0,level-1).join('/')&&r.name===chain[level-1];if(on||(r.bytes>=thr&&kept.length<8))kept.push(r)}
+    const kids=kept.map(r=>{const p=parent?parent+'/'+r.name:r.name;return {name:r.name,path:p,bytes:r.bytes,mix:r.mix,kids:level<maxd?build(p,r.bytes,level+1):[]}});
+    const rest=pb-kept.reduce((s,r)=>s+r.bytes,0);if(rest>0&&kids.length)kids.push({name:'other',other:true,bytes:rest,kids:[]});return kids};
+  return {indexed:true,total,depth:maxd,tree:{name:root,path:'',bytes:total,kids:build('',total,1)}}}
+async function drawSun(){const w=$('#sunwrap');if(tab!=='Browse'||!sunOpen||!browse.root){w.hidden=true;return}
+  w.hidden=false;const k=browse.kind||'';
+  const D=STATIC?sunStatic(browse.root,browse.path,k):await get(`/api/sunburst?root=${enc(browse.root)}&path=${enc(browse.path)}&kind=${enc(k)}`);
+  if(tab!=='Browse')return;
+  if(!D.indexed||!D.total){w.replaceChildren(el('div',{class:'card mute'},D.indexed===false?'Build the folder index to see the sunburst.':'Nothing to show for this filter.'));return}
+  const chain=browse.path?browse.path.split('/'):[],rings=D.depth,R=150,r0=34,cx=160,cy=160,rw=(R-r0)/rings;
+  const s=sv('svg',{viewBox:'0 0 320 320',style:'width:300px;height:300px;flex:none'});
+  const place=(n,a0,a1,level)=>{if(!n.kids.length)return;let a=a0;for(const c of n.kids){const da=(a1-a0)*c.bytes/n.bytes;if(da>0.004){
+      const on=!c.other&&level<=chain.length&&c.path===chain.slice(0,level).join('/'),cur=on&&level===chain.length;
+      s.append(sv('path',{d:arcPath(cx,cy,r0+(level-1)*rw,r0+level*rw-1,a,a+da),fill:kcol(c.other?'other':domKind(c.mix)),opacity:!chain.length||on?1:.5,stroke:cur?'var(--ink)':(on?'var(--ink)':'var(--card)'),'stroke-width':cur?2.5:(on?1.5:.7),style:c.other?'':'cursor:pointer',
+        onclick:c.other?null:()=>{browse.path=c.path;browse.all=false;rBrowse()}},sv('title',{},`${c.name}\n${fmt(c.bytes)} · ${pctOf(c.bytes,D.total)}% of ${browse.root}`)));
+      place(c,a,a+da,level+1)}a+=da}};
+  place(D.tree,0,2*Math.PI,1);
+  s.append(sv('circle',{cx,cy,r:r0-2,fill:'var(--card)',stroke:'var(--line)',style:'cursor:pointer',onclick:()=>{browse.path='';browse.all=false;rBrowse()}},sv('title',{},'Go to the top of '+browse.root)),
+    sv('text',{x:cx,y:cy+4,'text-anchor':'middle','font-size':11,fill:'var(--ink)',style:'pointer-events:none'},browse.root.length>9?browse.root.slice(0,8)+'…':browse.root));
+  const find=p=>{let n=D.tree;for(const c of (p?p.split('/'):[]).map((_,i,a)=>a.slice(0,i+1).join('/'))){n=(n.kids||[]).find(x=>x.path===c);if(!n)return null}return n};
+  const lines=[el('div',{},el('b',{},browse.root),' ',fmt(D.total),el('span',{class:'mute'},browse.kind?` (${KIND_LABEL[browse.kind]} only)`:''))];
+  chain.forEach((_,i)=>{const p=chain.slice(0,i+1).join('/'),n=find(p);if(n)lines.push(el('div',{style:`padding-left:${(i+1)*12}px;cursor:pointer`,onclick:()=>{browse.path=p;browse.all=false;rBrowse()}},'↳ ',chain[i],' ',el('span',{class:'mute'},`${fmt(n.bytes)} · ${pctOf(n.bytes,D.total)}% of the drive`)))});
+  w.replaceChildren(el('div',{class:'card',style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:0'},s,
+    el('div',{style:'flex:1;min-width:260px'},el('h3',{},'Where you are'),...lines,el('p',{class:'mute'},'Centre is the top of the drive; each ring is one folder level deeper. Faded arcs are elsewhere; your path is outlined. Click any arc to jump there.'),legend(Object.entries(D.tree.kids.reduce((m,c)=>{if(c.mix)for(const[k,v]of Object.entries(c.mix))m[k]=(m[k]||0)+v[1];return m},{})).map(([kind,bytes])=>({kind,bytes})).sort((a,b)=>b.bytes-a.bytes))))) }
+
+function sunBtn(){const b=$('#sunbtn');b.hidden=tab!=='Browse';b.textContent='Sunburst '+(sunOpen?'▾':'▸');b.onclick=()=>{sunOpen=!sunOpen;pref('sun',sunOpen?'1':'0');sunBtn();drawSun()}}
 function nav(){$('#nav').replaceChildren(...TABS.map(t=>el('button',{class:t===tab?'on':'',onclick:()=>{tab=t;nav();render()}},t)))}
 /* ---- colour key: one place defines what each file-type colour means ---- */
 function swatch(k){return el('span',{class:'sw',style:`background:var(${COLORS[k]||'--other'})`})}
@@ -560,7 +685,7 @@ function mixBar(mix,pct){const e=Object.entries(mix||{}).sort((a,b)=>b[1][1]-a[1
 function indexBanner(){const bad=S.roots.filter(r=>r.indexed===false);if(STATIC||!bad.length)return null;
   return el('div',{class:'card warn'},`Folder index not built for ${bad.map(r=>r.root).join(', ')}. Overview and Browse are slow until it is. `,el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:bad.map(r=>r.root)})},'Build index now'))}
 async function render(){
-  setHere(null);view.replaceChildren(el('p',{class:'mute'},'Loading…'));
+  setHere(null);sunBtn();if(tab!=='Browse')$('#sunwrap').hidden=true;view.replaceChildren(el('p',{class:'mute'},'Loading…'));
   if(!CFGJ)CFGJ=await get('/api/config');
   S=await get('/api/summary');
   ({Overview:rOverview,Browse:rBrowse,Duplicates:rDupes,Lightroom:rLr,Aperture:rAperture,Run:rRun})[tab]();
@@ -601,7 +726,7 @@ async function rBrowse(){
     d.total>d.children.length?el('p',{},`Showing the biggest ${num(d.children.length)} of ${num(d.total)} items. `,el('button',{class:'btn sm',onclick:()=>{browse.all=true;rBrowse()}},'Show all')):null,
     !STATIC&&R.indexed===false?el('p',{class:'mute'},'Folder index not built for this drive, so this is slow and cannot filter by type. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index')):null];
   view.replaceChildren(el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),
-    key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},t))}
+    viewSwitch(),key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},browse.view==='bars'?chartBars(d):browse.view==='pie'?chartPie(d):browse.view==='treemap'?chartTreemap(d):t));drawSun()}
 async function rDupes(){
   const d=await get('/api/dupes');
   const head=el('div',{class:'row2'},el('div',{class:'big'},fmt(d.reclaimable)),el('span',{class:'mute'},`reclaimable across ${num(d.groups)} groups · ${d.verified?'SHA-256 verified':'partial-hash match, run dupes with Full verify to confirm'}`));

@@ -33,6 +33,9 @@ Lightroom (every `.lrcat` found, with Read buttons and photos on disk that a cat
 does not reference), Aperture (every `.aplibrary`: size breakdown, projects, photos and
 how many are already in Lightroom) and Run (scan, index, lrcat, aperture, dupes and the
 HTML report, with a live job log).
+Browse can show the folder you are in as a Table, Bars, Pie or Treemap (colour is the file type; click a
+slice or tile to drill in). The Sunburst button in the top bar toggles a ring chart of the whole drive with
+your current folder outlined and its share of the drive listed; click any arc to jump there.
 An "Open in Finder" button at the top opens whatever folder you are viewing (macOS only, and only
 inside your configured roots); catalogues, libraries and duplicate paths have their own
 "Show" buttons. The static report offers "Copy path" instead. The UI opens the catalogue read-only, so it can stay
