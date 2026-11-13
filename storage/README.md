@@ -33,6 +33,9 @@ Lightroom (every `.lrcat` found, with Read buttons and photos on disk that a cat
 does not reference), Aperture (every `.aplibrary`: size breakdown, projects, photos and
 how many are already in Lightroom) and Run (scan, index, lrcat, aperture, dupes and the
 HTML report, with a live job log).
+File-type colours, mix bars and the sunburst need the folder index (`index`, or Build index in the UI; new scans
+build it automatically). Charts default to a distinct colour per folder and can be switched to colour by file type.
+Anything the UI starts shows a progress bar under the header with what it is doing.
 Browse can show the folder you are in as a Table, Bars, Pie or Treemap (colour is the file type; click a
 slice or tile to drill in). The Sunburst button in the top bar toggles a ring chart of the whole drive with
 your current folder outlined and its share of the drive listed; click any arc to jump there.

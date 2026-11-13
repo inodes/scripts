@@ -25,7 +25,7 @@ import storage_audit as sa  # noqa: E402
 
 CFG = None
 CONFIG_PATH = None
-JOB = {"running": False, "title": "", "log": [], "code": None}
+JOB = {"running": False, "title": "", "log": [], "code": None, "progress": None}
 JOB_LOCK = threading.Lock()
 
 
@@ -386,16 +386,23 @@ def run_job(title, argv):
     with JOB_LOCK:
         if JOB["running"]:
             return False
-        JOB.update(running=True, title=title, log=[], code=None)
+        JOB.update(running=True, title=title, log=[], code=None, progress=None)
 
     def work():
         try:
             p = subprocess.Popen([sys.executable, os.path.join(HERE, "storage_audit.py"), "--config", CONFIG_PATH] + argv,
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                 env=dict(os.environ, STORAGE_AUDIT_PROGRESS="1"))
             buf = ""
             for ch in iter(lambda: p.stdout.read(1), ""):
                 if ch in "\r\n":
-                    if buf:
+                    if buf.startswith("@@PROGRESS "):
+                        try:
+                            JOB["progress"] = json.loads(buf[len("@@PROGRESS "):])
+                        except ValueError:
+                            pass
+                        buf = ""
+                    elif buf:
                         JOB["log"].append(buf[-300:]); buf = ""
                         JOB["log"] = JOB["log"][-400:]
                 else:
@@ -406,6 +413,7 @@ def run_job(title, argv):
         except Exception as e:  # noqa: BLE001
             JOB["log"].append(f"error: {e}"); JOB["code"] = -1
         finally:
+            JOB["progress"] = None
             JOB["running"] = False
     threading.Thread(target=work, daemon=True).start()
     return True
@@ -506,7 +514,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/aperture/masters":
                 return self._send(200, api_aperture_masters(q.get("lib", ""), q.get("project", ""), int(q.get("limit", 500))))
             if u.path == "/api/job":
-                return self._send(200, {k: JOB[k] for k in ("running", "title", "log", "code")})
+                return self._send(200, {k: JOB[k] for k in ("running", "title", "log", "code", "progress")})
             if u.path == "/api/config":
                 return self._send(200, {"roots": CFG["roots"], "report_dir": CFG["report_dir"]})
         except Exception as e:  # noqa: BLE001
@@ -563,8 +571,12 @@ pre{background:#111;color:#cfe;padding:12px;border-radius:8px;max-height:340px;o
 .row2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}select,input[type=text]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
 .loc{font:12px ui-monospace,monospace;color:var(--mute);cursor:copy;word-break:break-all}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px}
 .cov{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bad);margin-top:5px;min-width:60px}.cov i{display:block;background:var(--good)}
+#prog{position:absolute;left:0;right:0;top:100%;background:var(--card);border-bottom:1px solid var(--line);padding:7px 24px;font-size:12.5px;display:flex;gap:14px;align-items:center;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+#prog .pbar{flex:0 0 280px;height:8px;background:var(--line);border-radius:4px;overflow:hidden;position:relative}#prog .pbar i{display:block;height:100%;background:var(--acc);width:0;transition:width .3s}
+#prog .pbar.ind i{width:35%;position:absolute;animation:slide 1.2s infinite ease-in-out}#prog.ok .pbar i{background:var(--good);width:100%}#prog.bad .pbar i{background:var(--bad);width:100%}
+@keyframes slide{0%{left:-35%}100%{left:100%}}
 </style>
-<header><h1>Storage audit</h1><nav id="nav"></nav><span style="flex:1"></span><button id="sunbtn" class="btn alt sm" hidden></button><button id="finder" class="btn alt sm" hidden></button><span id="jobstate" class="pill" hidden></span></header>
+<header><h1>Storage audit</h1><nav id="nav"></nav><span style="flex:1"></span><button id="sunbtn" class="btn alt sm" hidden></button><button id="finder" class="btn alt sm" hidden></button><span id="jobstate" class="pill" hidden></span><div id="prog" hidden><div class="pbar"><i></i></div><span id="plabel"></span></div></header>
 <div id="sunwrap" hidden></div>
 <main id="view"></main>
 <script>
@@ -578,7 +590,21 @@ const $=s=>document.querySelector(s),view=$('#view'),enc=encodeURIComponent;
 const fmt=b=>{const u=['B','KB','MB','GB','TB'];let i=0;b=b||0;while(b>=1024&&i<4){b/=1024;i++}return (i?b.toFixed(1):b)+' '+u[i]};
 const num=n=>(n||0).toLocaleString('en-AU');
 function el(t,a={},...k){const e=document.createElement(t);for(const[x,v]of Object.entries(a)){if(x==='class')e.className=v;else if(x.startsWith('on'))e[x]=v;else e.setAttribute(x,v)}for(const c of k.flat())if(c!==null&&c!==undefined&&c!==false)e.append(c instanceof Node?c:document.createTextNode(c));return e}
-const get=u=>{if(!STATIC)return fetch(u).then(r=>r.json());
+/* progress bar: shows the running job (with what it is doing) or any slow request in flight */
+const busyMap=new Map();let bid=0,jobProg=null,flash=null;
+const busy=l=>{const id=++bid;busyMap.set(id,l);showProg();return()=>{busyMap.delete(id);showProg()}};
+const LABELS=[['/api/tree','Loading folder'],['/api/sunburst','Drawing sunburst'],['/api/summary','Loading drive summary'],['/api/catalogues','Loading Lightroom catalogues'],['/api/aperture','Loading Aperture libraries'],['/api/dupes','Loading duplicates'],['/api/orphans','Comparing photos with the catalogue'],['/api/reveal','Opening in Finder'],['/api/report','Writing the HTML report'],['/api/run','Starting job']];
+const labelFor=u=>(LABELS.find(([p])=>String(u).startsWith(p))||[0,'Working'])[1];
+function showProg(){const b=$('#prog');if(!b)return;const bar=b.querySelector('.pbar'),lab=$('#plabel');b.className='';bar.className='pbar';
+  if(jobProg&&jobProg.running){const p=jobProg.progress||{},t=jobProg.title;let txt=t,pct=null;
+    if(p.label){const st=p.steps>1?` (${p.step} of ${p.steps})`:'';txt=`${p.label}${st}`+(p.detail?` · ${p.detail}`:'');
+      if(p.total&&p.done<=p.total){pct=Math.min(99,100*p.done/p.total);txt+=` · ${num(p.done)} of ${p.approx?'about ':''}${num(p.total)} (${Math.round(pct)}%)`}
+      else if(p.done)txt+=` · ${num(p.done)} so far`}
+    if(pct===null)bar.classList.add('ind');else bar.firstChild.style.width=pct+'%';lab.textContent=txt;b.hidden=false;return}
+  if(busyMap.size){bar.classList.add('ind');lab.textContent=[...busyMap.values()].pop()+'…';b.hidden=false;return}
+  if(flash){b.classList.add(flash.bad?'bad':'ok');lab.textContent=flash.msg;b.hidden=false;return}
+  b.hidden=true}
+const get=u=>{if(!STATIC){const done=u==='/api/job'?()=>{}:busy(labelFor(u));return fetch(u).then(r=>r.json()).finally(done)}
   const x=new URL(u,'http://x'),q=Object.fromEntries(x.searchParams),P=x.pathname,R=v=>Promise.resolve(v);
   if(P==='/api/summary')return R(DATA.summary);if(P==='/api/config')return R(DATA.config);if(P==='/api/dupes')return R(DATA.dupes);
   if(P==='/api/orphans')return R(DATA.orphans);if(P==='/api/catalogues')return R(DATA.catalogues);if(P==='/api/aperture')return R(DATA.aperture);
@@ -591,7 +617,7 @@ const get=u=>{if(!STATIC)return fetch(u).then(r=>r.json());
     let c=all;if(q.kind)c=all.filter(i=>i.dir?(i.mix||{})[q.kind]:i.kind===q.kind).map(i=>i.dir?{...i,files:i.mix[q.kind][0],bytes:i.mix[q.kind][1]}:i).sort((a,b)=>b.bytes-a.bytes);
     return R({children:c,total:c.length,indexed:true})}
   return R({})};
-const post=(u,b)=>fetch(u,{method:'POST',headers:{'X-Audit':'1','Content-Type':'application/json'},body:JSON.stringify(b)}).then(async r=>({ok:r.ok,...await r.json()}));
+const post=(u,b)=>{const done=busy(labelFor(u));return fetch(u,{method:'POST',headers:{'X-Audit':'1','Content-Type':'application/json'},body:JSON.stringify(b)}).then(async r=>({ok:r.ok,...await r.json()})).finally(done)};
 const runJob=b=>post('/api/run',b).then(r=>{if(!r.ok)alert(r.error);poll()});
 let here=null;
 function setHere(h){here=h;const b=$('#finder');b.hidden=!h;if(!h)return;b.textContent=STATIC?'Copy path':'Open in Finder';
@@ -603,13 +629,18 @@ function finderBtn(h,txt){return el('button',{class:'btn sm alt',title:STATIC?'C
 const SVGNS='http://www.w3.org/2000/svg';
 function sv(t,a={},...k){const e=document.createElementNS(SVGNS,t);for(const[x,v]of Object.entries(a)){if(x.startsWith('on'))e[x]=v;else e.setAttribute(x,v)}for(const c of k.flat())if(c!==null&&c!==undefined&&c!==false)e.append(c instanceof Node?c:document.createTextNode(c));return e}
 const kcol=k=>`var(${COLORS[k]||'--other'})`;
+/* colour mode: 'item' gives every slice/tile/arc its own hue so neighbours are easy to tell apart; 'type' colours by file type */
+let colorMode=pref('colour')||'item';
+const hue=i=>(i*137.508)%360;
+const icol=i=>i.other?'var(--other)':(colorMode==='type'?kcol(i.kind):`hsl(${Math.round(hue(i.idx||0))} 65% 52%)`);
+const sunCol=(c,level,t)=>c.other?'var(--other)':(colorMode==='type'?kcol(domKind(c.mix)):`hsl(${Math.round(hue(t))} 62% ${Math.min(70,44+(level-1)*6)}%)`);
 const domKind=mix=>{let b=null,m=-1;for(const[k,v]of Object.entries(mix||{}))if(v[1]>m){m=v[1];b=k}return b||'other'};
 const pctOf=(b,t)=>t?(100*b/t<0.1?'<0.1':(100*b/t).toFixed(1)):'0';
 function pref(k,v){try{if(v===undefined)return localStorage.getItem('sa_'+k);localStorage.setItem('sa_'+k,v)}catch(e){return null}}
 function chartItems(d,max){const L=d.children.slice(0,max).map(c=>({name:c.name,dir:c.dir,bytes:c.bytes,files:c.files,mix:c.mix,kind:c.dir?domKind(c.mix):(c.kind||'other')}));
   const rest=d.children.slice(max),rb=rest.reduce((s,c)=>s+c.bytes,0);
   if(rest.length&&rb>0)L.push({name:`other (${num(rest.length)} items)`,other:true,bytes:rb,files:rest.reduce((s,c)=>s+c.files,0),kind:'other'});
-  const items=L.filter(i=>i.bytes>0);return {items,total:items.reduce((s,i)=>s+i.bytes,0)}}
+  const items=L.filter(i=>i.bytes>0);items.forEach((i,k)=>i.idx=k);return {items,total:items.reduce((s,i)=>s+i.bytes,0)}}
 function tip(i,t){return `${i.name}\n${fmt(i.bytes)} · ${num(i.files)} file${i.files===1?'':'s'} · ${pctOf(i.bytes,t)}% of this folder`+(i.dir?'':'\n(click to show in Finder)')}
 function openItem(i){if(i.other)return;const rel=(browse.path?browse.path+'/':'')+i.name;
   if(i.dir){browse.path=rel;browse.all=false;rBrowse()}else if(!STATIC)reveal({root:browse.root,rel})}
@@ -619,13 +650,13 @@ function arcPath(cx,cy,r0,r1,a0,a1){if(a1-a0>=2*Math.PI-1e-4)a1=a0+2*Math.PI-1e-
 function chartBars(d){const {items,total}=chartItems(d,25),max=Math.max(1,...items.map(i=>i.bytes));
   return el('div',{},items.map(i=>el('div',{style:'display:flex;align-items:center;gap:10px;margin:5px 0;'+(i.other?'':'cursor:pointer'),title:tip(i,total),onclick:()=>openItem(i)},
     el('div',{style:'width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'},i.dir?'📁 ':'',i.name),
-    el('div',{style:`flex:1`},i.mix?mixBar(i.mix,100*i.bytes/max):mixBar({[i.kind]:[1,i.bytes]},100*i.bytes/max)),
+    el('div',{style:'flex:1'},el('div',{style:`height:14px;border-radius:4px;min-width:3px;width:${100*i.bytes/max}%;background:${icol(i)}`}),i.mix?mixBar(i.mix,100*i.bytes/max):mixBar({[i.kind]:[1,i.bytes]},100*i.bytes/max)),
     el('div',{style:'width:150px;text-align:right;white-space:nowrap'},fmt(i.bytes),el('span',{class:'mute'},' · '+pctOf(i.bytes,total)+'%')))))}
 function chartPie(d){const {items,total}=chartItems(d,12),cx=150,cy=150,s=sv('svg',{viewBox:'0 0 300 300',style:'width:300px;height:300px;flex:none'});let a=0;
-  items.forEach(i=>{const da=2*Math.PI*i.bytes/total;s.append(sv('path',{d:arcPath(cx,cy,70,142,a,a+da),fill:kcol(i.kind),stroke:'var(--card)','stroke-width':2,style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total))));a+=da});
+  items.forEach(i=>{const da=2*Math.PI*i.bytes/total;s.append(sv('path',{d:arcPath(cx,cy,70,142,a,a+da),fill:icol(i),stroke:'var(--card)','stroke-width':2,style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total))));a+=da});
   s.append(sv('text',{x:cx,y:cy-2,'text-anchor':'middle','font-size':17,'font-weight':600,fill:'var(--ink)'},fmt(total)),sv('text',{x:cx,y:cy+16,'text-anchor':'middle','font-size':11,fill:'var(--mute)'},'this folder'));
   return el('div',{style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap'},s,el('table',{style:'flex:1;min-width:280px'},items.map(i=>el('tr',{class:i.other?'':'row',onclick:()=>openItem(i)},
-    el('td',{},swatch(i.kind),i.dir?'📁 ':'',i.name),el('td',{class:'n'},fmt(i.bytes)),el('td',{class:'n mute'},pctOf(i.bytes,total)+'%')))))}
+    el('td',{},el('span',{class:'sw',style:`background:${icol(i)}`}),i.dir?'📁 ':'',i.name),el('td',{class:'n'},fmt(i.bytes)),el('td',{class:'n mute'},pctOf(i.bytes,total)+'%')))))}
 function squarify(items,x,y,w,h){const tot=items.reduce((s,i)=>s+i.bytes,0),out=[],rest=items.map(i=>({i,a:i.bytes/tot*w*h}));
   while(rest.length){const side=Math.min(w,h);let row=[],s=0,worst=Infinity;
     const wo=(r,ss)=>{const mx=Math.max(...r.map(q=>q.a)),mn=Math.min(...r.map(q=>q.a));return Math.max(side*side*mx/(ss*ss),ss*ss/(side*side*mn))};
@@ -635,13 +666,14 @@ function squarify(items,x,y,w,h){const tot=items.reduce((s,i)=>s+i.bytes,0),out=
   return out}
 function chartTreemap(d){const {items,total}=chartItems(d,60),W=1000,H=520,s=sv('svg',{viewBox:`0 0 ${W} ${H}`,style:'width:100%;height:auto;display:block'});
   squarify(items,0,0,W,H).forEach(r=>{const i=r.i,g=sv('g',{style:i.other?'':'cursor:pointer',onclick:()=>openItem(i)},sv('title',{},tip(i,total)));
-    g.append(sv('rect',{x:r.x,y:r.y,width:Math.max(0,r.w),height:Math.max(0,r.h),fill:kcol(i.kind),opacity:.88,stroke:'var(--card)','stroke-width':2}));
+    g.append(sv('rect',{x:r.x,y:r.y,width:Math.max(0,r.w),height:Math.max(0,r.h),fill:icol(i),opacity:.88,stroke:'var(--card)','stroke-width':2}));
     if(i.mix&&r.h>14&&r.w>10){const t=Object.values(i.mix).reduce((q,v)=>q+v[1],0)||1;let xx=r.x;Object.entries(i.mix).sort((p,q)=>q[1][1]-p[1][1]).forEach(([k,v])=>{const ww=r.w*v[1]/t;g.append(sv('rect',{x:xx,y:r.y+r.h-6,width:ww,height:6,fill:kcol(k)}));xx+=ww})}
     if(r.w>90&&r.h>38){const n=Math.max(4,Math.floor(r.w/7.5)),nm=i.name.length>n?i.name.slice(0,n-1)+'…':i.name,st={fill:'#fff',stroke:'rgba(0,0,0,.5)','stroke-width':3,'paint-order':'stroke','font-size':13};
       g.append(sv('text',{...st,x:r.x+7,y:r.y+19,'font-weight':600},(i.dir?'📁 ':'')+nm),sv('text',{...st,x:r.x+7,y:r.y+35,'font-size':11},`${fmt(i.bytes)} · ${pctOf(i.bytes,total)}%`))}
     s.append(g)});return s}
 const VIEWS=[['table','Table'],['bars','Bars'],['pie','Pie'],['treemap','Treemap']];
-function viewSwitch(){return el('div',{class:'key'},el('span',{class:'mute'},'View:'),VIEWS.map(([v,l])=>el('button',{class:'chip'+(browse.view===v?' on':''),onclick:()=>{browse.view=v;pref('view',v);rBrowse()}},l)))}
+function viewSwitch(){return el('div',{class:'key'},el('span',{class:'mute'},'View:'),VIEWS.map(([v,l])=>el('button',{class:'chip'+(browse.view===v?' on':''),onclick:()=>{browse.view=v;pref('view',v);rBrowse()}},l)),
+    el('span',{class:'mute',style:'margin-left:14px'},'Colour charts:'),[['item','by folder / item'],['type','by file type']].map(([m,l])=>el('button',{class:'chip'+(colorMode===m?' on':''),onclick:()=>{colorMode=m;pref('colour',m);rBrowse()}},l)))}
 /* sunburst: whole drive from the centre outwards; the folder you are in is outlined */
 function sunStatic(root,path,kind){const T=DATA.tree[root]||{},chain=path?path.split('/'):[],maxd=Math.min(8,Math.max(3,chain.length+2));
   const rowsOf=p=>(T[p]||[]).filter(c=>c.dir&&(!kind||(c.mix||{})[kind])).map(c=>({name:c.name,bytes:kind?c.mix[kind][1]:c.bytes,mix:c.mix})).sort((a,b)=>b.bytes-a.bytes);
@@ -654,22 +686,22 @@ async function drawSun(){const w=$('#sunwrap');if(tab!=='Browse'||!sunOpen||!bro
   w.hidden=false;const k=browse.kind||'';
   const D=STATIC?sunStatic(browse.root,browse.path,k):await get(`/api/sunburst?root=${enc(browse.root)}&path=${enc(browse.path)}&kind=${enc(k)}`);
   if(tab!=='Browse')return;
-  if(!D.indexed||!D.total){w.replaceChildren(el('div',{class:'card mute'},D.indexed===false?'Build the folder index to see the sunburst.':'Nothing to show for this filter.'));return}
+  if(!D.indexed||!D.total){w.replaceChildren(el('div',{class:'card mute'},D.indexed===false?['The sunburst needs the folder index. ',STATIC?null:el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)]:'Nothing to show for this filter.'));return}
   const chain=browse.path?browse.path.split('/'):[],rings=D.depth,R=150,r0=34,cx=160,cy=160,rw=(R-r0)/rings;
   const s=sv('svg',{viewBox:'0 0 320 320',style:'width:300px;height:300px;flex:none'});
-  const place=(n,a0,a1,level)=>{if(!n.kids.length)return;let a=a0;for(const c of n.kids){const da=(a1-a0)*c.bytes/n.bytes;if(da>0.004){
+  const place=(n,a0,a1,level,ti)=>{if(!n.kids.length)return;let a=a0,k=0;for(const c of n.kids){const t=level===1?k++:ti;const da=(a1-a0)*c.bytes/n.bytes;if(da>0.004){
       const on=!c.other&&level<=chain.length&&c.path===chain.slice(0,level).join('/'),cur=on&&level===chain.length;
-      s.append(sv('path',{d:arcPath(cx,cy,r0+(level-1)*rw,r0+level*rw-1,a,a+da),fill:kcol(c.other?'other':domKind(c.mix)),opacity:!chain.length||on?1:.5,stroke:cur?'var(--ink)':(on?'var(--ink)':'var(--card)'),'stroke-width':cur?2.5:(on?1.5:.7),style:c.other?'':'cursor:pointer',
+      s.append(sv('path',{d:arcPath(cx,cy,r0+(level-1)*rw,r0+level*rw-1,a,a+da),fill:sunCol(c,level,t),opacity:!chain.length||on?1:.5,stroke:cur?'var(--ink)':(on?'var(--ink)':'var(--card)'),'stroke-width':cur?2.5:(on?1.5:.7),style:c.other?'':'cursor:pointer',
         onclick:c.other?null:()=>{browse.path=c.path;browse.all=false;rBrowse()}},sv('title',{},`${c.name}\n${fmt(c.bytes)} · ${pctOf(c.bytes,D.total)}% of ${browse.root}`)));
-      place(c,a,a+da,level+1)}a+=da}};
-  place(D.tree,0,2*Math.PI,1);
+      place(c,a,a+da,level+1,t)}a+=da}};
+  place(D.tree,0,2*Math.PI,1,0);
   s.append(sv('circle',{cx,cy,r:r0-2,fill:'var(--card)',stroke:'var(--line)',style:'cursor:pointer',onclick:()=>{browse.path='';browse.all=false;rBrowse()}},sv('title',{},'Go to the top of '+browse.root)),
     sv('text',{x:cx,y:cy+4,'text-anchor':'middle','font-size':11,fill:'var(--ink)',style:'pointer-events:none'},browse.root.length>9?browse.root.slice(0,8)+'…':browse.root));
   const find=p=>{let n=D.tree;for(const c of (p?p.split('/'):[]).map((_,i,a)=>a.slice(0,i+1).join('/'))){n=(n.kids||[]).find(x=>x.path===c);if(!n)return null}return n};
   const lines=[el('div',{},el('b',{},browse.root),' ',fmt(D.total),el('span',{class:'mute'},browse.kind?` (${KIND_LABEL[browse.kind]} only)`:''))];
   chain.forEach((_,i)=>{const p=chain.slice(0,i+1).join('/'),n=find(p);if(n)lines.push(el('div',{style:`padding-left:${(i+1)*12}px;cursor:pointer`,onclick:()=>{browse.path=p;browse.all=false;rBrowse()}},'↳ ',chain[i],' ',el('span',{class:'mute'},`${fmt(n.bytes)} · ${pctOf(n.bytes,D.total)}% of the drive`)))});
   w.replaceChildren(el('div',{class:'card',style:'display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:0'},s,
-    el('div',{style:'flex:1;min-width:260px'},el('h3',{},'Where you are'),...lines,el('p',{class:'mute'},'Centre is the top of the drive; each ring is one folder level deeper. Faded arcs are elsewhere; your path is outlined. Click any arc to jump there.'),legend(Object.entries(D.tree.kids.reduce((m,c)=>{if(c.mix)for(const[k,v]of Object.entries(c.mix))m[k]=(m[k]||0)+v[1];return m},{})).map(([kind,bytes])=>({kind,bytes})).sort((a,b)=>b.bytes-a.bytes))))) }
+    el('div',{style:'flex:1;min-width:260px'},el('h3',{},'Where you are'),...lines,el('p',{class:'mute'},'Centre is the top of the drive; each ring is one folder level deeper. Faded arcs are elsewhere; your path is outlined. Click any arc to jump there.'),colorMode==='item'?el('div',{class:'legend'},D.tree.kids.filter(c=>!c.other).map((c,k)=>el('span',{style:'cursor:pointer',title:'Go to '+c.name,onclick:()=>{browse.path=c.path;browse.all=false;rBrowse()}},el('span',{class:'sw',style:`background:${sunCol(c,1,k)}`}),`${c.name} ${fmt(c.bytes)}`))):legend(Object.entries(D.tree.kids.reduce((m,c)=>{if(c.mix)for(const[k,v]of Object.entries(c.mix))m[k]=(m[k]||0)+v[1];return m},{})).map(([kind,bytes])=>({kind,bytes})).sort((a,b)=>b.bytes-a.bytes))))) }
 
 function sunBtn(){const b=$('#sunbtn');b.hidden=tab!=='Browse';b.textContent='Sunburst '+(sunOpen?'▾':'▸');b.onclick=()=>{sunOpen=!sunOpen;pref('sun',sunOpen?'1':'0');sunBtn();drawSun()}}
 function nav(){$('#nav').replaceChildren(...TABS.map(t=>el('button',{class:t===tab?'on':'',onclick:()=>{tab=t;nav();render()}},t)))}
@@ -685,7 +717,7 @@ function mixBar(mix,pct){const e=Object.entries(mix||{}).sort((a,b)=>b[1][1]-a[1
 function indexBanner(){const bad=S.roots.filter(r=>r.indexed===false);if(STATIC||!bad.length)return null;
   return el('div',{class:'card warn'},`Folder index not built for ${bad.map(r=>r.root).join(', ')}. Overview and Browse are slow until it is. `,el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:bad.map(r=>r.root)})},'Build index now'))}
 async function render(){
-  setHere(null);sunBtn();if(tab!=='Browse')$('#sunwrap').hidden=true;view.replaceChildren(el('p',{class:'mute'},'Loading…'));
+  rBrowse.c=null;setHere(null);sunBtn();if(tab!=='Browse')$('#sunwrap').hidden=true;view.replaceChildren(el('p',{class:'mute'},'Loading…'));
   if(!CFGJ)CFGJ=await get('/api/config');
   S=await get('/api/summary');
   ({Overview:rOverview,Browse:rBrowse,Duplicates:rDupes,Lightroom:rLr,Aperture:rAperture,Run:rRun})[tab]();
@@ -706,10 +738,16 @@ async function rBrowse(){
   if(!browse.root)browse.root=(S.roots[0]||{}).root;
   if(!browse.root){view.replaceChildren(el('p',{class:'mute'},'Scan something first.'));return}
   const url=p=>`/api/tree?root=${enc(browse.root)}&path=${enc(p)}&kind=${enc(browse.kind||'')}&limit=${browse.all?0:500}`;
-  let d=await get(url(browse.path));
-  const hops=[];
-  if(browse.skip&&!browse.kind){while(d.children.length===1&&d.children[0].dir&&hops.length<12){const nx=d.children[0].name,np=(browse.path?browse.path+'/':'')+nx;
-    const n2=await get(url(np));if(n2.truncated||!n2.children.length)break;hops.push(nx);browse.path=np;d=n2}}
+  if(!browse.view)browse.view=pref('view')||'table';
+  const ckey=[browse.root,browse.path,browse.kind||'',browse.all,browse.skip].join('|');
+  let d,hops=[];
+  if(rBrowse.c&&rBrowse.c.keys.includes(ckey)){d=rBrowse.c.d;hops=rBrowse.c.hops;browse.path=rBrowse.c.path}   /* switching view re-uses the data */
+  else{view.style.opacity=.5;
+    try{d=await get(url(browse.path));
+      if(browse.skip&&!browse.kind){while(d.children.length===1&&d.children[0].dir&&hops.length<12){const nx=d.children[0].name,np=(browse.path?browse.path+'/':'')+nx;
+        const n2=await get(url(np));if(n2.truncated||!n2.children.length)break;hops.push(nx);browse.path=np;d=n2}}}
+    finally{view.style.opacity=1}
+    rBrowse.c={keys:[ckey,[browse.root,browse.path,browse.kind||'',browse.all,browse.skip].join('|')],d,hops,path:browse.path}}
   const sel=el('select',{onchange:e=>{browse={...browse,root:e.target.value,path:'',all:false};rBrowse()}},S.roots.map(r=>el('option',{value:r.root,...(r.root===browse.root?{selected:''}:{})},r.root)));
   const skipBox=el('input',{type:'checkbox',...(browse.skip?{checked:''}:{}),onchange:e=>{browse.skip=e.target.checked;rBrowse()}});
   const parts=browse.path?browse.path.split('/'):[];
@@ -725,8 +763,8 @@ async function rBrowse(){
     hops.length?el('p',{class:'mute'},`Skipped through single-folder levels: ${hops.join(' / ')}`):null,
     d.total>d.children.length?el('p',{},`Showing the biggest ${num(d.children.length)} of ${num(d.total)} items. `,el('button',{class:'btn sm',onclick:()=>{browse.all=true;rBrowse()}},'Show all')):null,
     !STATIC&&R.indexed===false?el('p',{class:'mute'},'Folder index not built for this drive, so this is slow and cannot filter by type. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index')):null];
-  view.replaceChildren(el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),
-    viewSwitch(),key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},browse.view==='bars'?chartBars(d):browse.view==='pie'?chartPie(d):browse.view==='treemap'?chartTreemap(d):t));drawSun()}
+  view.replaceChildren(...[!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains'))].filter(Boolean),
+    viewSwitch(),key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},(()=>{try{return browse.view==='bars'?chartBars(d):browse.view==='pie'?chartPie(d):browse.view==='treemap'?chartTreemap(d):t}catch(e){console.error(e);return el('p',{class:'mute'},'Could not draw this view: '+e.message)}})()));drawSun().catch(e=>console.error(e))}
 async function rDupes(){
   const d=await get('/api/dupes');
   const head=el('div',{class:'row2'},el('div',{class:'big'},fmt(d.reclaimable)),el('span',{class:'mute'},`reclaimable across ${num(d.groups)} groups · ${d.verified?'SHA-256 verified':'partial-hash match, run dupes with Full verify to confirm'}`));
@@ -817,10 +855,11 @@ function rRun(){
       el('div',{class:'row2'},el('button',{class:'btn alt',onclick:async()=>{const r=await post('/api/report',{});alert(r.path||r.error)}},'Write report'))),
     el('h3',{},'Job log'),log].filter(Boolean));poll()}
 let timer=null;
-async function poll(){clearTimeout(timer);const j=await get('/api/job');const p=$('#jobstate');p.hidden=!j.title;p.textContent=j.running?`running: ${j.title}`:(j.title?`${j.title}: ${j.code===0?'done':'exit '+j.code}`:'');
+async function poll(){clearTimeout(timer);const j=await get('/api/job');jobProg=j;const p=$('#jobstate');p.hidden=!j.title;p.textContent=j.running?`running: ${j.title}`:(j.title?`${j.title}: ${j.code===0?'done':'exit '+j.code}`:'');
   const l=$('#log');if(l){l.textContent=j.log.join('\n')||'No job run yet.';l.scrollTop=l.scrollHeight}
-  if(j.running)timer=setTimeout(poll,1000);else if(window._wasRunning){window._wasRunning=false;if(tab!=='Run')render()}
-  window._wasRunning=j.running}
+  if(j.running){window._wasRunning=true;timer=setTimeout(poll,800)}
+  else if(window._wasRunning){window._wasRunning=false;const ok=j.code===0;flash={msg:ok?`✓ ${j.title} finished`:`✗ ${j.title} failed (exit ${j.code}); see the Run tab log`,bad:!ok};setTimeout(()=>{flash=null;showProg()},ok?4000:12000);if(tab!=='Run')render()}
+  showProg()}
 nav();render();poll();
 </script></html>
 """

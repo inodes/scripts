@@ -18,6 +18,25 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from urllib.parse import quote
 
+# Progress lines for the UI. Only emitted when the UI starts a job (STORAGE_AUDIT_PROGRESS=1), so the
+# command line stays quiet. Format: "@@PROGRESS {json}" on its own line.
+_PROG = {"on": os.environ.get("STORAGE_AUDIT_PROGRESS") == "1", "t": 0.0, "step": None, "steps": None}
+
+
+def set_step(i, n):
+    _PROG["step"], _PROG["steps"] = i, n
+
+
+def progress(label, done=0, total=0, detail="", approx=False, force=False):
+    if not _PROG["on"]:
+        return
+    now = time.monotonic()
+    if not force and now - _PROG["t"] < 0.4:
+        return
+    _PROG["t"] = now
+    print("@@PROGRESS " + json.dumps({"label": label, "done": done, "total": total, "detail": detail[-90:],
+                                      "approx": approx, "step": _PROG["step"], "steps": _PROG["steps"]}), flush=True)
+
 KINDS = {
     "photo": "jpg jpeg heic png tif tiff gif webp dng cr2 cr3 nef arw orf rw2 raf psd",
     "video": "mov mp4 m4v avi mkv wmv mts m2ts mpg mpeg 3gp lrv thm",
@@ -140,6 +159,7 @@ def db(cfg):
 def cmd_scan(cfg, only):
     con = db(cfg)
     skip = set(cfg["exclude_names"])
+    todo = [l for l, r in cfg["roots"].items() if (not only or l in only) and os.path.isdir(r)]
     for label, root in cfg["roots"].items():
         if only and label not in only:
             continue
@@ -147,6 +167,9 @@ def cmd_scan(cfg, only):
             print(f"[skip] {label}: {root} not mounted")
             continue
         print(f"[scan] {label} ({root})")
+        set_step(todo.index(label) + 1, len(todo))
+        prev = con.execute("SELECT nfiles FROM scans WHERE root=?", (label,)).fetchone()
+        expect = prev[0] if prev else 0  # last scan's file count, so the bar can show an estimate
         # an interrupted scan must not look finished: drop the old summary row, keep nothing half-counted
         con.execute("DELETE FROM scans WHERE root=?", (label,))
         con.execute("DELETE FROM files WHERE root=?", (label,))
@@ -178,6 +201,7 @@ def cmd_scan(cfg, only):
                             n += 1; total += st.st_size
                     except OSError:
                         pass
+            progress(f"Scanning {label}", n, expect, os.path.relpath(d, root), approx=True)
             if len(rows) >= 5000:
                 con.executemany("INSERT OR REPLACE INTO files VALUES(?,?,?,?,?,?,?,?,?)", rows)
                 con.commit()  # progress survives a crash; the root only counts as scanned once `scans` is written
@@ -202,6 +226,7 @@ def build_index(con, root):
     con.execute("CREATE INDEX IF NOT EXISTS i_dirpart ON files(root, rtrim(rel, replace(rel, '/', '')))")
     direct, kinds = {}, defaultdict(lambda: [0, 0])
     nfiles = nbytes = 0
+    expect = (con.execute("SELECT nfiles FROM scans WHERE root=?", (root,)).fetchone() or [0])[0]
     finds = []
     for rel, size, mtime, kind, ext in con.execute("SELECT rel, size, mtime, kind, ext FROM files WHERE root=?", (root,)):
         if ext == "lrcat":
@@ -222,6 +247,9 @@ def build_index(con, root):
             km[0] += 1; km[1] += size
         k = kinds[kind]; k[0] += 1; k[1] += size
         nfiles += 1; nbytes += size
+        if nfiles % 20000 == 0:
+            progress(f"Indexing {root}", nfiles, expect, "reading file list")
+    progress(f"Indexing {root}", 0, 0, "rolling folder totals up", force=True)
     # roll folder totals (and their type mix) up to parents, deepest first
     tot = {d: v for d, v in direct.items() if d}
     levels = defaultdict(set)
@@ -246,6 +274,7 @@ def build_index(con, root):
     # files sitting directly in the root contribute to no folder row; everything else is covered
     rows = [(root, *d.rpartition("/")[::2], v[0], v[1], v[2], json.dumps(v[3], separators=(",", ":")))
             for d, v in tot.items()]
+    progress(f"Indexing {root}", 0, 0, f"writing {len(rows):,} folders", force=True)
     con.execute("DELETE FROM dirs WHERE root=?", (root,))
     con.execute("DELETE FROM kinds WHERE root=?", (root,))
     con.execute("DELETE FROM finds WHERE root=?", (root,))
@@ -260,9 +289,10 @@ def build_index(con, root):
 
 def cmd_index(cfg, only):
     con = db(cfg)
-    for (root,) in con.execute("SELECT root FROM scans ORDER BY root").fetchall():
-        if not only or root in only:
-            build_index(con, root)
+    todo = [r for (r,) in con.execute("SELECT root FROM scans ORDER BY root").fetchall() if not only or r in only]
+    for i, root in enumerate(todo, 1):
+        set_step(i, len(todo))
+        build_index(con, root)
 
 
 def partial_hash(path, size, chunk=65536):
@@ -290,6 +320,7 @@ def cmd_dupes(cfg, full, only_kind):
     sizes = [r[0] for r in con.execute(q, (cfg["min_dupe_bytes"],))]
     print(f"{len(sizes):,} sizes shared by 2+ files (>= {cfg['min_dupe_bytes']:,} bytes)")
     for i, s in enumerate(sizes, 1):
+        progress("Finding duplicates (" + ("full SHA-256" if full else "partial hash") + ")", i, len(sizes), f"files of {s:,} bytes")
         rows = con.execute("SELECT root, rel, kind FROM files WHERE size=?", (s,)).fetchall()
         for root, rel, kind in rows:
             if only_kind and kind != only_kind:
@@ -333,7 +364,10 @@ def cmd_lrcat(cfg, catalogues, read_all=False):
     q = """SELECT r.absolutePath || f.pathFromRoot || fi.baseName || '.' || fi.extension
            FROM AgLibraryFile fi JOIN AgLibraryFolder f ON fi.folder=f.id_local
            JOIN AgLibraryRootFolder r ON f.rootFolder=r.id_local"""
-    for cat in dict.fromkeys(paths):
+    cats = list(dict.fromkeys(paths))
+    for ci, cat in enumerate(cats, 1):
+        set_step(ci, len(cats))
+        progress("Reading Lightroom catalogue", 0, 0, os.path.basename(cat), force=True)
         if not (cat.endswith(".lrcat") and os.path.isfile(cat)):
             print(f"[skip] {cat}: not a readable .lrcat file")
             continue
@@ -348,8 +382,10 @@ def cmd_lrcat(cfg, catalogues, read_all=False):
         con.execute("DELETE FROM lrfiles WHERE catalogue=?", (cat,))
         in_scanned = missing = 0
         rows = []
-        for p in photo_paths:  # how many sit under a scanned root, and how many of those are gone from disk
+        for pi, p in enumerate(photo_paths):  # how many sit under a scanned root, and how many of those are gone from disk
             size = None
+            if pi % 2000 == 0:
+                progress("Matching catalogue photos to scanned files", pi, len(photo_paths), os.path.basename(cat))
             for prefix, label in roots:
                 if p.startswith(prefix):
                     in_scanned += 1
@@ -393,7 +429,9 @@ def cmd_aperture(cfg, libraries, read_all=False):
     if not wanted:
         sys.exit("No Aperture libraries found (scan first, or pass .aplibrary paths).")
     roots = [(os.path.join(os.path.expanduser(p), ""), label) for label, p in cfg["roots"].items()]
-    for lib, (root, lib_rel) in wanted.items():
+    for li, (lib, (root, lib_rel)) in enumerate(wanted.items(), 1):
+        set_step(li, len(wanted))
+        progress("Reading Aperture library", 0, 0, os.path.basename(lib), force=True)
         apdb = os.path.join(lib, "Database", "apdb", "Library.apdb")
         if not os.path.isfile(apdb):
             print(f"[skip] {lib}: no Database/apdb/Library.apdb")
@@ -418,7 +456,9 @@ def cmd_aperture(cfg, libraries, read_all=False):
         con.execute("DELETE FROM apfolders WHERE lib=?", (lib,))
         absent = managed = referenced = trashed = 0
         rows, dates = [], []
-        for uuid, proj, fname, oname, ipath, fsize, idate, is_ref, missing, intrash in masters:
+        for mi, (uuid, proj, fname, oname, ipath, fsize, idate, is_ref, missing, intrash) in enumerate(masters):
+            if mi % 2000 == 0:
+                progress("Checking Aperture masters on disk", mi, len(masters), os.path.basename(lib))
             date = (idate + APERTURE_EPOCH) if isinstance(idate, (int, float)) else None
             if date:
                 dates.append(date)
