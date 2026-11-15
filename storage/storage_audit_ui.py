@@ -72,18 +72,42 @@ def api_summary():
         v.sort(key=lambda x: -x["bytes"])
     unscanned = [r for r in CFG["roots"] if r not in indexed]
     stored = {r: (t, f, u, d) for r, t, f, u, d in query("SELECT root, total, free, used, seen FROM space", optional=True)}
-    space, devs = {}, {}
+    space, groups = {}, {}
+
+    def sig(total, free):  # network shares on one NAS volume are separate mounts but report identical capacity
+        return (total, round(free / 1e9))
+
     for r in list(indexed) + unscanned:
         live = sa.space_of(CFG["roots"][r]) if r in CFG["roots"] and os.path.isdir(CFG["roots"][r]) else None
         if live:
             space[r] = {"total": live["total"], "free": live["free"], "used": live["used"], "live": True}
-            devs.setdefault(("dev", live["dev"]), []).append(r)
+            g = groups.setdefault(sig(live["total"], live["free"]), {"sp": space[r], "roots": [], "mounts": []})
+            g["roots"].append(r)
         elif r in stored:
             t, f, u, d = stored[r]
             space[r] = {"total": t, "free": f, "used": u, "live": False, "seen": d}
-            devs.setdefault(("old", t, u), []).append(r)
-    volumes = [{"roots": rs, "total": space[rs[0]]["total"], "free": space[rs[0]]["free"], "used": space[rs[0]]["used"],
-                "live": space[rs[0]]["live"]} for rs in devs.values()]
+            g = groups.setdefault(("old", t, u), {"sp": space[r], "roots": [], "mounts": []})
+            g["roots"].append(r)
+    # every mounted drive, configured or not, so you can see where a move could go
+    extra = [("Macintosh HD (internal)", "/")]
+    try:
+        extra += [(n, os.path.join("/Volumes", n)) for n in sorted(os.listdir("/Volumes"))
+                  if not os.path.islink(os.path.join("/Volumes", n)) and os.path.isdir(os.path.join("/Volumes", n))]
+    except OSError:
+        pass
+    for name, path in extra:
+        live = sa.space_of(path)
+        if live:
+            g = groups.setdefault(sig(live["total"], live["free"]),
+                                  {"sp": {"total": live["total"], "free": live["free"], "used": live["used"], "live": True},
+                                   "roots": [], "mounts": []})
+            g["mounts"].append(name)
+    volumes = []
+    for g in groups.values():
+        names = g["roots"] + [m for m in g["mounts"] if m not in g["roots"]]
+        volumes.append({"roots": names, "configured": bool(g["roots"]), "total": g["sp"]["total"], "free": g["sp"]["free"],
+                        "used": g["sp"]["used"], "live": g["sp"]["live"], "seen": g["sp"].get("seen")})
+    volumes.sort(key=lambda v: -v["free"])
     return {
         "space": space, "volumes": volumes, "overlaps": sa.root_overlaps(CFG),
         "roots": [{"root": r, "scanned": d, "files": n, "bytes": b, "kinds": by_root[r], "indexed": indexed[r],
@@ -649,6 +673,27 @@ function spaceBar(rootRow,sp,compact){if(!sp||!sp.total)return null;const t=sp.t
       sp.live?null:el('span',{class:'mute'},` · last seen ${sp.seen||'earlier'}`)),
     compact?null:el('div',{class:'legend',style:'margin-top:4px'},el('span',{},el('span',{class:'sw',style:'background:var(--acc)'}),'this scan'),el('span',{},el('span',{class:'sw',style:'background:var(--system)'}),'other files on the volume'),el('span',{},el('span',{class:'sw',style:'background:var(--good)'}),'free')))}
 let showFree=pref('free')!=='0',chartScope='this folder';
+/* ---- volumes: free space on every mounted drive, plus a move planner ---- */
+let plan={bytes:0,label:'',root:''},linkRate=pref('rate')||'110';
+const RATES=[['110','Gigabit Ethernet (~110 MB/s)'],['280','2.5 GbE (~280 MB/s)'],['1000','10 GbE (~1,000 MB/s)'],['40','Wi-Fi (~40 MB/s)'],['350','USB 3 drive (~350 MB/s)'],['35','Slow / busy network (~35 MB/s)']];
+function dur(sec){if(sec<90)return Math.round(sec)+' s';if(sec<5400)return Math.round(sec/60)+' min';if(sec<172800)return (sec/3600).toFixed(1)+' h';return (sec/86400).toFixed(1)+' days'}
+function volumesCard(){const vols=S.volumes||[];if(!vols.length)return null;
+  const inp=el('input',{type:'text',size:'7',placeholder:'GB',value:plan.bytes?String(Math.round(plan.bytes/1e9)):'',onchange:e=>{const v=parseFloat(e.target.value);plan={bytes:isFinite(v)&&v>0?v*1e9:0,label:v>0?`${v} GB`:'',root:''};rOverview()}});
+  const rate=el('select',{onchange:e=>{linkRate=e.target.value;pref('rate',linkRate);rOverview()}},RATES.map(([v,l])=>el('option',{value:v,...(v===linkRate?{selected:''}:{})},l)));
+  const rows=vols.map(v=>{const pct=v.total?Math.round(100*v.used/v.total):0,lv=lowSpace(v);let fit=null,tm=null;
+    if(plan.bytes){const same=plan.root&&v.roots.includes(plan.root);
+      if(same){fit=el('span',{class:'mute'},'same drive')}
+      else{const left=v.free-plan.bytes,tight=left<0.1*v.total;fit=left<0?el('span',{class:'tag bad'},`short by ${fmt(-left)}`):el('span',{class:'tag '+(tight?'':'good'),style:tight?'color:var(--archive);border-color:var(--archive)':''},tight?`fits, leaves ${fmt(left)} (tight)`:`fits, leaves ${fmt(left)}`);
+        tm=left<0?null:dur(plan.bytes/(parseFloat(linkRate)*1e6))}}
+    const names=v.roots.length>4?v.roots.slice(0,4).join(', ')+` +${v.roots.length-4} more`:v.roots.join(', ');
+    return el('tr',{},el('td',{},el('b',{},names),v.configured?null:el('span',{class:'tag'},'not in config'),v.live?null:el('span',{class:'tag'},'not mounted')),
+      el('td',{class:'n'},fmt(v.total)),el('td',{class:'n'},el('b',{},fmt(v.free))),
+      el('td',{style:'min-width:150px'},el('div',{class:'stack',style:'margin:4px 0'},el('i',{style:`width:${pct}%;background:${lv==='bad'?'var(--bad)':lv==='warn'?'var(--archive)':'var(--acc)'}`})),el('span',{class:'mute'},pct+'% full')),
+      plan.bytes?el('td',{},fit):null,plan.bytes?el('td',{class:'n'},tm||''):null)});
+  return el('div',{class:'card'},el('div',{class:'row2',style:'margin-top:0'},el('h3',{style:'margin:0'},'Drives and free space'),el('span',{class:'mute'},'Shares on the same NAS volume are grouped.')),
+    el('div',{class:'row2'},el('span',{},'Planning a move of'),inp,el('span',{class:'mute'},plan.label&&plan.root?`(${plan.label}: ${fmt(plan.bytes)})`:'GB, or use "Plan a move" in Browse'),el('span',{},'over'),rate),
+    el('table',{},el('tr',{},el('th',{},'Drive'),el('th',{class:'n'},'Size'),el('th',{class:'n'},'Free'),el('th',{},'Used'),plan.bytes?el('th',{},'Fits?'):null,plan.bytes?el('th',{class:'n'},'Transfer time'):null),rows),
+    plan.bytes?el('p',{class:'mute'},'Times assume a steady transfer. Folders full of small files (photos, caches) usually run 2 to 3 times slower than one big file.'):null)}
 /* ---- charts: bars / pie / treemap of the folder you are in, plus a sunburst of where it sits ---- */
 const SVGNS='http://www.w3.org/2000/svg';
 function sv(t,a={},...k){const e=document.createElementNS(SVGNS,t);for(const[x,v]of Object.entries(a)){if(x.startsWith('on'))e[x]=v;else e.setAttribute(x,v)}for(const c of k.flat())if(c!==null&&c!==undefined&&c!==false)e.append(c instanceof Node?c:document.createTextNode(c));return e}
@@ -753,10 +798,11 @@ async function render(){
 }
 function rOverview(){
   const tot=S.roots.reduce((a,r)=>a+r.bytes,0),files=S.roots.reduce((a,r)=>a+r.files,0);
-  const vols=S.volumes||[],freeAll=vols.reduce((a,v)=>a+v.free,0),totAll=vols.reduce((a,v)=>a+v.total,0),low=vols.filter(v=>v.total&&v.free/v.total<0.15);
+  const vols=S.volumes||[],freeAll=vols.reduce((a,v)=>a+v.free,0),totAll=vols.reduce((a,v)=>a+v.total,0),low=vols.filter(v=>v.configured&&v.total&&v.free/v.total<0.15);
   const out=[indexBanner(),el('div',{class:'row2'},el('div',{class:'big'},fmt(tot)),el('span',{class:'mute'},`${num(files)} files across ${S.roots.length} scanned roots`),
       vols.length?el('span',{class:'pill',title:'Free space across distinct volumes'},`${fmt(freeAll)} free of ${fmt(totAll)} on ${vols.length} volume${vols.length===1?'':'s'}`):null),
     (S.overlaps||[]).length?el('div',{class:'card warn'},S.overlaps.map(([a,b])=>el('div',{},'⚠ ',el('b',{},a),' is inside ',el('b',{},b),': its files are counted twice and appear as duplicates. Remove one of them from config.json.'))):null,
+    volumesCard(),
     low.length?el('div',{class:'card warn'},low.map(v=>el('div',{},'⚠ ',el('b',{},v.roots.join(' + ')),` is ${Math.round(100*v.used/v.total)}% full with only ${fmt(v.free)} free`+(v.live?'':' (last seen)')))):null,
     key(null,k=>{browse={...browse,root:browse.root||(S.roots[0]||{}).root,path:'',kind:k};tab='Browse';nav();render()})];
   if(!S.roots.length)out.push(el('div',{class:'card'},'Nothing scanned yet. Go to ',el('b',{},'Run'),' and start a scan.'));
@@ -792,11 +838,12 @@ async function rBrowse(){
       el('td',{class:'n'},num(c.files)),el('td',{class:'n'},fmt(c.bytes)),el('td',{class:'n mute'},c.newest))));
   setHere({root:browse.root,rel:browse.path,label:browse.root+(browse.path?'/'+browse.path:'')});
   const R=S.roots.find(r=>r.root===browse.root)||{};
+  const folderBytes=d.children.reduce((a,c)=>a+c.bytes,0);
   const notes=[d.truncated?el('p',{class:'mute'},`The static report stops at ${DATA.depth} folder levels. Use storage_audit_ui.py for every level.`):null,
     hops.length?el('p',{class:'mute'},`Skipped through single-folder levels: ${hops.join(' / ')}`):null,
     d.total>d.children.length?el('p',{},`Showing the biggest ${num(d.children.length)} of ${num(d.total)} items. `,el('button',{class:'btn sm',onclick:()=>{browse.all=true;rBrowse()}},'Show all')):null,
     !STATIC&&R.indexed===false?el('p',{class:'mute'},'Folder index not built for this drive, so this is slow and cannot filter by type. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index')):null];
-  view.replaceChildren(...[!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),el('div',{style:'max-width:520px'},spaceBar(R,(S.space||{})[browse.root],true))].filter(Boolean),
+  view.replaceChildren(...[!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),el('div',{style:'max-width:520px'},spaceBar(R,(S.space||{})[browse.root],true)),el('div',{class:'row2'},el('button',{class:'btn sm alt',title:'Check which drive has room for this folder and how long a copy would take',onclick:()=>{plan={bytes:browse.path?folderBytes:(R.bytes||folderBytes),label:browse.root+(browse.path?'/'+browse.path:''),root:browse.root};tab='Overview';nav();render()}},'Plan a move of this folder'))].filter(Boolean),
     viewSwitch(),key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},(()=>{try{return browse.view==='bars'?chartBars(d):browse.view==='pie'?chartPie(d):browse.view==='treemap'?chartTreemap(d):t}catch(e){console.error(e);return el('p',{class:'mute'},'Could not draw this view: '+e.message)}})()));drawSun().catch(e=>console.error(e))}
 async function rDupes(){
   const d=await get('/api/dupes');

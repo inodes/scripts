@@ -39,6 +39,9 @@ Free space: each drive card and the top of Browse show how full the volume is (t
 with a warning below 20% free and a banner on Overview below 15%. Charts at the top of a drive add "Used by other
 files" and "Free space" slices (toggle: Show free space). Capacity is read live when the drive is mounted and
 remembered from the last scan otherwise.
+Overview has a "Drives and free space" table covering every mounted drive (configured or not); shares on the same
+NAS volume are grouped. Type a size in GB, or click "Plan a move of this folder" in Browse, to see which drives it
+fits on and how long the copy would take over Gigabit Ethernet, 2.5/10 GbE, Wi-Fi or USB.
 Anything the UI starts shows a progress bar under the header with what it is doing.
 Browse can show the folder you are in as a Table, Bars, Pie or Treemap (colour is the file type; click a
 slice or tile to drill in). The Sunburst button in the top bar toggles a ring chart of the whole drive with
