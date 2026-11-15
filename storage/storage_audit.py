@@ -54,6 +54,9 @@ def root_overlaps(cfg):
     for a, pa in real.items():
         for b, pb in real.items():
             if a != b and pa != pb and pa.startswith(pb.rstrip("/") + "/"):
+                skipped = excluded_paths(cfg, pb)  # e.g. /Volumes is never scanned from "/", so no double count
+                if any(pa == x or pa.startswith(x + "/") for x in skipped):
+                    continue
                 out.append((a, b))
     return out
 
