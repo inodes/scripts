@@ -12,7 +12,7 @@ If the port is busy it tries the next 20 (unless --port is given) and prints the
 
 Standard library only.
 """
-import argparse, errno, json, os, sqlite3, subprocess, sys, threading, webbrowser
+import argparse, errno, json, os, re, shutil, sqlite3, subprocess, sys, threading, time, webbrowser
 from collections import defaultdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -109,7 +109,7 @@ def api_summary():
                         "used": g["sp"]["used"], "live": g["sp"]["live"], "seen": g["sp"].get("seen")})
     volumes.sort(key=lambda v: -v["free"])
     return {
-        "space": space, "volumes": volumes, "overlaps": sa.root_overlaps(CFG),
+        "space": space, "volumes": volumes, "overlaps": sa.root_overlaps(CFG), "carved": carve_info(),
         "roots": [{"root": r, "scanned": d, "files": n, "bytes": b, "kinds": by_root[r], "indexed": indexed[r],
                    "mounted": os.path.isdir(CFG["roots"].get(r, ""))} for r, d, n, b in scans],
         "unscanned": [{"root": r, "mounted": os.path.isdir(CFG["roots"][r])} for r in unscanned],
@@ -479,6 +479,88 @@ def reveal(body):
     return True
 
 
+def real_config_path():
+    """The file that actually holds the settings (follows a one-hop config_file pointer)."""
+    with open(CONFIG_PATH) as f:
+        raw = json.load(f)
+    if "config_file" in raw:
+        t = os.path.expanduser(raw["config_file"])
+        return t if os.path.isabs(t) else os.path.join(os.path.dirname(CONFIG_PATH), t)
+    return CONFIG_PATH
+
+
+def edit_config(mutate):
+    """Backup config.json, apply mutate(raw_dict), write atomically, reload CFG."""
+    global CFG
+    path = real_config_path()
+    with open(path) as f:
+        raw = json.load(f)
+    before = json.dumps(raw, indent=2)
+    mutate(raw)
+    shutil.copy2(path, path + ".bak-" + time.strftime("%Y%m%d-%H%M%S"))
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(json.dumps(raw, indent=2) + "\n")
+    os.replace(tmp, path)
+    CFG = sa.load_config(CONFIG_PATH)
+    return before != json.dumps(raw, indent=2)
+
+
+def carve(body):
+    """Split a folder out of its drive into its own root; the parent then skips it. Returns True or an error string."""
+    root, rel = body.get("root"), str(body.get("rel") or "").strip("/")
+    if root not in CFG["roots"] or not rel:
+        return "choose a folder inside a drive (not the top of the drive)"
+    target = os.path.join(CFG["roots"][root], rel)
+    if not os.path.isdir(target):
+        return "folder not found (is the drive mounted?)"
+    name = re.sub(r"[^\w .-]", "", str(body.get("name") or os.path.basename(rel))).strip()
+    if not name:
+        return "give the new root a name"
+    if name in CFG["roots"]:
+        return f"a root called '{name}' already exists - pick another name"
+    if any(os.path.realpath(v) == os.path.realpath(target) for v in CFG["roots"].values()):
+        return "that folder is already a root"
+
+    def m(raw):
+        raw.setdefault("roots", {})[name] = target
+        co = raw.setdefault("carve_out", [])
+        if name not in co:
+            co.append(name)
+    edit_config(m)
+    return True
+
+
+def merge_back(body):
+    """Undo a carve-out: drop the root and its carve_out entry; the parent will include the folder again."""
+    name = body.get("name")
+    if name not in CFG.get("carve_out", []):
+        return "that root was not split out from a drive"
+
+    def m(raw):
+        raw["carve_out"] = [n for n in raw.get("carve_out", []) if n != name]
+        raw.get("roots", {}).pop(name, None)
+    edit_config(m)
+    return True
+
+
+def carve_info():
+    """{name: {parent, rel}} for each carved-out root, so the UI can say where it sits."""
+    out = {}
+    for n in CFG.get("carve_out", []):
+        if n not in CFG["roots"]:
+            continue
+        p = os.path.abspath(CFG["roots"][n])
+        best = None
+        for k, v in CFG["roots"].items():
+            b = os.path.abspath(v)
+            if k != n and p.startswith(b.rstrip("/") + "/") and (best is None or len(b) > len(best[1])):
+                best = (k, b)
+        if best:
+            out[n] = {"parent": best[0], "rel": p[len(best[1]):].strip("/")}
+    return out
+
+
 def start_action(body):
     cmd = body.get("cmd")
     if cmd == "scan":
@@ -572,6 +654,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/reveal":
             r = reveal(body)
             return self._send(200 if r is True else 400, {"ok": True} if r is True else {"error": r})
+        if self.path in ("/api/carve", "/api/merge"):
+            r = (carve if self.path == "/api/carve" else merge_back)(body)
+            return self._send(200 if r is True else 400, {"ok": True} if r is True else {"error": r})
         if self.path == "/api/report":
             return self._send(200, {"path": write_index(CFG)})
         self._send(404, {"error": "not found"})
@@ -631,7 +716,7 @@ function el(t,a={},...k){const e=document.createElement(t);for(const[x,v]of Obje
 /* progress bar: shows the running job (with what it is doing) or any slow request in flight */
 const busyMap=new Map();let bid=0,jobProg=null,flash=null;
 const busy=l=>{const id=++bid;busyMap.set(id,l);showProg();return()=>{busyMap.delete(id);showProg()}};
-const LABELS=[['/api/tree','Loading folder'],['/api/sunburst','Drawing sunburst'],['/api/summary','Loading drive summary'],['/api/catalogues','Loading Lightroom catalogues'],['/api/aperture','Loading Aperture libraries'],['/api/dupes','Loading duplicates'],['/api/orphans','Comparing photos with the catalogue'],['/api/reveal','Opening in Finder'],['/api/report','Writing the HTML report'],['/api/run','Starting job']];
+const LABELS=[['/api/tree','Loading folder'],['/api/sunburst','Drawing sunburst'],['/api/summary','Loading drive summary'],['/api/catalogues','Loading Lightroom catalogues'],['/api/aperture','Loading Aperture libraries'],['/api/dupes','Loading duplicates'],['/api/orphans','Comparing photos with the catalogue'],['/api/carve','Updating config.json'],['/api/merge','Updating config.json'],['/api/reveal','Opening in Finder'],['/api/report','Writing the HTML report'],['/api/run','Starting job']];
 const labelFor=u=>(LABELS.find(([p])=>String(u).startsWith(p))||[0,'Working'])[1];
 function showProg(){const b=$('#prog');if(!b)return;const bar=b.querySelector('.pbar'),lab=$('#plabel');b.className='';bar.className='pbar';
   if(jobProg&&jobProg.running){const p=jobProg.progress||{},t=jobProg.title;let txt=t,pct=null;
@@ -801,7 +886,7 @@ function rOverview(){
   const vols=S.volumes||[],freeAll=vols.reduce((a,v)=>a+v.free,0),totAll=vols.reduce((a,v)=>a+v.total,0),low=vols.filter(v=>v.configured&&v.total&&v.free/v.total<0.15);
   const out=[indexBanner(),el('div',{class:'row2'},el('div',{class:'big'},fmt(tot)),el('span',{class:'mute'},`${num(files)} files across ${S.roots.length} scanned roots`),
       vols.length?el('span',{class:'pill',title:'Free space across distinct volumes'},`${fmt(freeAll)} free of ${fmt(totAll)} on ${vols.length} volume${vols.length===1?'':'s'}`):null),
-    (S.overlaps||[]).length?el('div',{class:'card warn'},S.overlaps.map(([a,b])=>el('div',{},'⚠ ',el('b',{},a),' is inside ',el('b',{},b),': its files are counted twice and appear as duplicates. Remove one of them from config.json.'))):null,
+    (S.overlaps||[]).length?el('div',{class:'card warn'},S.overlaps.map(([a,b])=>el('div',{},'⚠ ',el('b',{},a),' is inside ',el('b',{},b),': its files are counted twice and appear as duplicates. Use Browse › Split out to scan the inner folder separately, or remove one from config.json.'))):null,
     volumesCard(),
     low.length?el('div',{class:'card warn'},low.map(v=>el('div',{},'⚠ ',el('b',{},v.roots.join(' + ')),` is ${Math.round(100*v.used/v.total)}% full with only ${fmt(v.free)} free`+(v.live?'':' (last seen)')))):null,
     key(null,k=>{browse={...browse,root:browse.root||(S.roots[0]||{}).root,path:'',kind:k};tab='Browse';nav();render()})];
@@ -813,6 +898,23 @@ function rOverview(){
   S.unscanned.forEach(r=>g.append(el('div',{class:'card'},el('h3',{},r.root),el('div',{class:'mute'},r.mounted?'Not scanned yet':'Not mounted'),spaceBar({bytes:0},(S.space||{})[r.root]))));
   out.push(g);view.replaceChildren(...out.filter(Boolean))}
 /* ---- Browse: every folder is reachable; colour = file type ---- */
+function carveBar(){
+  if(STATIC)return null;const info=(S.carved||{})[browse.root];
+  if(info)return el('div',{class:'card',style:'border-left:4px solid var(--acc)'},el('b',{},'Split out: '),
+    `${browse.root} is the folder ${info.parent} / ${info.rel}, scanned on its own. ${info.parent} no longer counts it. `,
+    el('button',{class:'btn sm alt',onclick:()=>carveMerge(browse.root,info)},'Merge back into '+info.parent));
+  if(!browse.path)return null;
+  return el('div',{class:'row2'},el('button',{class:'btn sm alt',title:'Scan this folder as its own root and stop counting it in '+browse.root,onclick:()=>carveSplit(browse.root,browse.path)},'Split this folder out into its own root'))}
+async function carveSplit(root,rel){
+  const def=rel.split('/').pop();const name=prompt(`Name for the new root (it will be listed under ${root} as "${root} / ${rel}"):`,def);if(!name)return;
+  const r=await post('/api/carve',{root,rel,name});if(!r.ok){alert(r.error);return}
+  CFGJ=null;await render();
+  if(confirm(`"${name}" is now its own root and ${root} will skip it.\n\nScan "${name}" now and rescan ${root} so the numbers update?`))runJob({cmd:'scan',roots:[name,root]})}
+async function carveMerge(name,info){
+  if(!confirm(`Merge "${name}" back into ${info.parent}?\n\nThe separate root is removed from config.json (a backup is kept). Rescan ${info.parent} afterwards to count it there again.`))return;
+  const r=await post('/api/merge',{name});if(!r.ok){alert(r.error);return}
+  CFGJ=null;browse={...browse,root:info.parent,path:info.rel,all:false};await render();
+  if(confirm(`Rescan ${info.parent} now?`))runJob({cmd:'scan',roots:[info.parent]})}
 async function rBrowse(){
   if(!browse.root)browse.root=(S.roots[0]||{}).root;
   if(!browse.root){view.replaceChildren(el('p',{class:'mute'},'Scan something first.'));return}
@@ -827,7 +929,7 @@ async function rBrowse(){
         const n2=await get(url(np));if(n2.truncated||!n2.children.length)break;hops.push(nx);browse.path=np;d=n2}}}
     finally{view.style.opacity=1}
     rBrowse.c={keys:[ckey,[browse.root,browse.path,browse.kind||'',browse.all,browse.skip].join('|')],d,hops,path:browse.path}}
-  const sel=el('select',{onchange:e=>{browse={...browse,root:e.target.value,path:'',all:false};rBrowse()}},S.roots.map(r=>el('option',{value:r.root,...(r.root===browse.root?{selected:''}:{})},r.root)));
+  const sel=el('select',{onchange:e=>{browse={...browse,root:e.target.value,path:'',all:false};rBrowse()}},S.roots.map(r=>el('option',{value:r.root,...(r.root===browse.root?{selected:''}:{})},(S.carved||{})[r.root]?`${r.root}  ⤷ in ${S.carved[r.root].parent}`:r.root)));
   const skipBox=el('input',{type:'checkbox',...(browse.skip?{checked:''}:{}),onchange:e=>{browse.skip=e.target.checked;rBrowse()}});
   const parts=browse.path?browse.path.split('/'):[];
   const crumbs=el('div',{class:'crumbs'},el('a',{onclick:()=>{browse.path='';browse.all=false;rBrowse()}},browse.root),...parts.map((p,i)=>[' / ',el('a',{onclick:()=>{browse.path=parts.slice(0,i+1).join('/');browse.all=false;rBrowse()}},p)]));
@@ -843,7 +945,7 @@ async function rBrowse(){
     hops.length?el('p',{class:'mute'},`Skipped through single-folder levels: ${hops.join(' / ')}`):null,
     d.total>d.children.length?el('p',{},`Showing the biggest ${num(d.children.length)} of ${num(d.total)} items. `,el('button',{class:'btn sm',onclick:()=>{browse.all=true;rBrowse()}},'Show all')):null,
     !STATIC&&R.indexed===false?el('p',{class:'mute'},'Folder index not built for this drive, so this is slow and cannot filter by type. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index')):null];
-  view.replaceChildren(...[!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),el('div',{style:'max-width:520px'},spaceBar(R,(S.space||{})[browse.root],true)),el('div',{class:'row2'},el('button',{class:'btn sm alt',title:'Check which drive has room for this folder and how long a copy would take',onclick:()=>{plan={bytes:browse.path?folderBytes:(R.bytes||folderBytes),label:browse.root+(browse.path?'/'+browse.path:''),root:browse.root};tab='Overview';nav();render()}},'Plan a move of this folder'))].filter(Boolean),
+  view.replaceChildren(...[carveBar(),!STATIC&&R.indexed===false?el('div',{class:'card warn'},el('b',{},'Build the folder index to unlock file-type colours, per-folder mix bars and the sunburst. '),'It takes a minute or two per big drive and shows its progress at the top of the page. ',el('button',{class:'btn sm',onclick:()=>runJob({cmd:'index',roots:[browse.root]})},'Build index for '+browse.root)):null,el('div',{class:'row2'},sel,el('label',{},skipBox,' Skip through single-folder chains')),el('div',{style:'max-width:520px'},spaceBar(R,(S.space||{})[browse.root],true)),el('div',{class:'row2'},el('button',{class:'btn sm alt',title:'Check which drive has room for this folder and how long a copy would take',onclick:()=>{plan={bytes:browse.path?folderBytes:(R.bytes||folderBytes),label:browse.root+(browse.path?'/'+browse.path:''),root:browse.root};tab='Overview';nav();render()}},'Plan a move of this folder'))].filter(Boolean),
     viewSwitch(),key(browse.kind,k=>{browse.kind=k;browse.all=false;rBrowse()}),crumbs,...notes.filter(Boolean),el('div',{class:'card'},(()=>{try{return browse.view==='bars'?chartBars(d):browse.view==='pie'?chartPie(d):browse.view==='treemap'?chartTreemap(d):t}catch(e){console.error(e);return el('p',{class:'mute'},'Could not draw this view: '+e.message)}})()));drawSun().catch(e=>console.error(e))}
 async function rDupes(){
   const d=await get('/api/dupes');

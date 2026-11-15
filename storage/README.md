@@ -94,3 +94,5 @@ storage/hw_report.py          # writes <report_dir>/hardware/hardware_report.txt
 
 Serial numbers, MAC addresses, UUIDs and share user names are redacted before anything is saved.
 Like the reports above, the output is for you only: keep it out of git.
+
+- **Splitting a big folder out of a drive**: in the UI (Browse, any folder below the top of a drive) press *Split this folder out into its own root*. It adds the root and a `carve_out` entry to config.json (timestamped `.bak-` backup beside it), then offers to scan the new root and rescan the parent. A split-out root shows a banner ("Split out: X is the folder Parent / path") and is labelled "in Parent" in the drive list; *Merge back* reverses it.
