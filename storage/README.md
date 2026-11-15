@@ -96,3 +96,10 @@ Serial numbers, MAC addresses, UUIDs and share user names are redacted before an
 Like the reports above, the output is for you only: keep it out of git.
 
 - **Splitting a big folder out of a drive**: in the UI (Browse, any folder below the top of a drive) press *Split this folder out into its own root*. It adds the root and a `carve_out` entry to config.json (timestamped `.bak-` backup beside it), then offers to scan the new root and rescan the parent. A split-out root shows a banner ("Split out: X is the folder Parent / path") and is labelled "in Parent" in the drive list; *Merge back* reverses it.
+
+## Verifying a copy (`verify_copy.py`)
+`python3 verify_copy.py /Volumes/LaCie1/FCP /Volumes/FCP [--sub Drone.fcpbundle ...] [--hash] [--out report.txt]` is a read-only check that the
+destination holds every file in the source and nothing on the source is newer. It reports missing files, source-newer files, same-time size
+mismatches and (with `--hash`) SHA-256 mismatches; files edited later on the destination are listed as fine. Final Cut cache (Thumbnail Media,
+`.fcpcache`) is ignored. Exit status 1 means something needs copying before the source is retired. `--hash` reads both copies in full, so run it
+per bundle, ideally overnight.
