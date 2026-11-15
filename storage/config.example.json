@@ -10,7 +10,7 @@
     "Download": "/Volumes/Download",
     "Container": "/Volumes/Container",
     "Multimedia": "/Volumes/Multimedia",
-    "Pictures": "~/Pictures"
+    "Macintosh-HD": "/"
   },
   "min_dupe_bytes": 1000000
 }

@@ -35,6 +35,29 @@ def space_of(path):
     return {"total": total, "free": free, "used": max(0, total - st.f_bfree * st.f_frsize), "dev": dev}
 
 
+def excluded_paths(cfg, root):
+    """Absolute folders to skip while scanning `root` (only those strictly inside it)."""
+    base = os.path.abspath(root)
+    pre = base.rstrip("/") + "/"
+    out = set()
+    for p in DEFAULT_EXCLUDE_PATHS + list(cfg.get("exclude_paths", [])):
+        ap = os.path.abspath(os.path.expanduser(p))
+        if ap != base and ap.startswith(pre):
+            out.add(ap)
+    return out
+
+
+def root_overlaps(cfg):
+    """[(inner, outer)] pairs of roots where one sits inside the other: their files would be counted twice."""
+    real = {k: os.path.realpath(os.path.expanduser(v)) for k, v in cfg["roots"].items()}
+    out = []
+    for a, pa in real.items():
+        for b, pb in real.items():
+            if a != b and pa != pb and pa.startswith(pb.rstrip("/") + "/"):
+                out.append((a, b))
+    return out
+
+
 def set_step(i, n):
     _PROG["step"], _PROG["steps"] = i, n
 
@@ -60,6 +83,11 @@ KINDS = {
 }
 EXT_KIND = {e: k for k, v in KINDS.items() for e in v.split()}
 PHOTO_EXT = set(KINDS["photo"].split())
+# Whole-disk scans ("/"): these paths hold other volumes or system plumbing, not your files. /Volumes would
+# re-walk every attached drive, and /System/Volumes/Data is the same data you already reach through /Users etc.
+# They only apply when they sit inside the root being scanned, so a drive under /Volumes is unaffected.
+DEFAULT_EXCLUDE_PATHS = ["/Volumes", "/System/Volumes", "/dev", "/Network", "/cores", "/private/var/vm"]
+
 DEFAULT_EXCLUDE = ["@Recycle", "@Recently-Snapshot", ".Trash", ".Trashes", ".Spotlight-V100",
                    ".fseventsd", ".TemporaryItems", ".timemachine", ".DocumentRevisions-V100",
                    ".MobileBackups", ".PKInstallSandboxManager", ".PKInstallSandboxManager-SystemSoftware",
@@ -124,6 +152,7 @@ def load_config(path, _via=None):
     cfg["report_dir"] = os.path.expanduser(cfg.get("report_dir") or os.path.join(os.path.dirname(path), "reports"))
     cfg["roots"] = {k: os.path.expanduser(v) for k, v in cfg["roots"].items()}
     cfg.setdefault("exclude_names", DEFAULT_EXCLUDE)
+    cfg.setdefault("exclude_paths", [])
     cfg.setdefault("min_dupe_bytes", 1_000_000)
     return cfg
 
@@ -173,6 +202,10 @@ def db(cfg):
 def cmd_scan(cfg, only):
     con = db(cfg)
     skip = set(cfg["exclude_names"])
+    for inner, outer in root_overlaps(cfg):
+        if (not only or inner in only or outer in only):
+            print(f"[warn] root {inner} is inside root {outer}: its files are counted twice (and show as duplicates). "
+                  f"Remove one of them from config.json.")
     todo = [l for l, r in cfg["roots"].items() if (not only or l in only) and os.path.isdir(r)]
     for label, root in cfg["roots"].items():
         if only and label not in only:
@@ -182,6 +215,9 @@ def cmd_scan(cfg, only):
             continue
         print(f"[scan] {label} ({root})")
         set_step(todo.index(label) + 1, len(todo))
+        skip_paths = excluded_paths(cfg, root)
+        if skip_paths:
+            print("  skipping: " + ", ".join(sorted(skip_paths)))
         prev = con.execute("SELECT nfiles FROM scans WHERE root=?", (label,)).fetchone()
         expect = prev[0] if prev else 0  # last scan's file count, so the bar can show an estimate
         # an interrupted scan must not look finished: drop the old summary row, keep nothing half-counted
@@ -200,7 +236,7 @@ def cmd_scan(cfg, only):
                 continue
             with it:
                 for e in it:
-                    if e.name in skip:
+                    if e.name in skip or e.path in skip_paths:
                         continue
                     try:
                         if e.is_dir(follow_symlinks=False):
@@ -380,7 +416,8 @@ def cmd_lrcat(cfg, catalogues, read_all=False):
         paths += [p for p, _, rel, _, _ in found_catalogues(con, cfg) if not is_backup(rel)]
     if not paths:
         sys.exit("No catalogues given (pass .lrcat paths, or --all after a scan).")
-    roots = [(os.path.join(os.path.expanduser(p), ""), label) for label, p in cfg["roots"].items()]
+    roots = sorted(((os.path.join(os.path.expanduser(p), ""), label) for label, p in cfg["roots"].items()),
+                   key=lambda x: -len(x[0]))  # longest prefix first, so a "/" root does not swallow other drives
     q = """SELECT r.absolutePath || f.pathFromRoot || fi.baseName || '.' || fi.extension
            FROM AgLibraryFile fi JOIN AgLibraryFolder f ON fi.folder=f.id_local
            JOIN AgLibraryRootFolder r ON f.rootFolder=r.id_local"""
@@ -448,7 +485,8 @@ def cmd_aperture(cfg, libraries, read_all=False):
             wanted[full] = (root, lib_rel)
     if not wanted:
         sys.exit("No Aperture libraries found (scan first, or pass .aplibrary paths).")
-    roots = [(os.path.join(os.path.expanduser(p), ""), label) for label, p in cfg["roots"].items()]
+    roots = sorted(((os.path.join(os.path.expanduser(p), ""), label) for label, p in cfg["roots"].items()),
+                   key=lambda x: -len(x[0]))  # longest prefix first, so a "/" root does not swallow other drives
     for li, (lib, (root, lib_rel)) in enumerate(wanted.items(), 1):
         set_step(li, len(wanted))
         progress("Reading Aperture library", 0, 0, os.path.basename(lib), force=True)

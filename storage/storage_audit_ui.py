@@ -85,7 +85,7 @@ def api_summary():
     volumes = [{"roots": rs, "total": space[rs[0]]["total"], "free": space[rs[0]]["free"], "used": space[rs[0]]["used"],
                 "live": space[rs[0]]["live"]} for rs in devs.values()]
     return {
-        "space": space, "volumes": volumes,
+        "space": space, "volumes": volumes, "overlaps": sa.root_overlaps(CFG),
         "roots": [{"root": r, "scanned": d, "files": n, "bytes": b, "kinds": by_root[r], "indexed": indexed[r],
                    "mounted": os.path.isdir(CFG["roots"].get(r, ""))} for r, d, n, b in scans],
         "unscanned": [{"root": r, "mounted": os.path.isdir(CFG["roots"][r])} for r in unscanned],
@@ -756,6 +756,7 @@ function rOverview(){
   const vols=S.volumes||[],freeAll=vols.reduce((a,v)=>a+v.free,0),totAll=vols.reduce((a,v)=>a+v.total,0),low=vols.filter(v=>v.total&&v.free/v.total<0.15);
   const out=[indexBanner(),el('div',{class:'row2'},el('div',{class:'big'},fmt(tot)),el('span',{class:'mute'},`${num(files)} files across ${S.roots.length} scanned roots`),
       vols.length?el('span',{class:'pill',title:'Free space across distinct volumes'},`${fmt(freeAll)} free of ${fmt(totAll)} on ${vols.length} volume${vols.length===1?'':'s'}`):null),
+    (S.overlaps||[]).length?el('div',{class:'card warn'},S.overlaps.map(([a,b])=>el('div',{},'⚠ ',el('b',{},a),' is inside ',el('b',{},b),': its files are counted twice and appear as duplicates. Remove one of them from config.json.'))):null,
     low.length?el('div',{class:'card warn'},low.map(v=>el('div',{},'⚠ ',el('b',{},v.roots.join(' + ')),` is ${Math.round(100*v.used/v.total)}% full with only ${fmt(v.free)} free`+(v.live?'':' (last seen)')))):null,
     key(null,k=>{browse={...browse,root:browse.root||(S.roots[0]||{}).root,path:'',kind:k};tab='Browse';nav();render()})];
   if(!S.roots.length)out.push(el('div',{class:'card'},'Nothing scanned yet. Go to ',el('b',{},'Run'),' and start a scan.'));

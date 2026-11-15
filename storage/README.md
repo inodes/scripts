@@ -64,6 +64,10 @@ Duplicates, Lightroom and Aperture tabs. Its folder drill-down is captured to fo
 levels (`report_depth` in config.json); use the visual version for deeper levels.
 
 Notes:
+- To scan the whole Mac disk add `"Macintosh-HD": "/"` as a root. `/Volumes` (your other drives), `/System/Volumes`
+  (the same data again) and a few system paths are skipped automatically; add more with `exclude_paths`
+  (absolute folders). Grant your terminal Full Disk Access so protected folders can be read. Don't also keep a
+  root inside it (e.g. `~/Pictures`): the scan warns because those files would be counted twice.
 - The catalogue is a local SQLite file in WAL mode (never put it in iCloud).
 - Catalogues are only found inside scanned roots, so add your local Lightroom folder
   (`Lightroom-local` in the example config) as a root.
