@@ -78,3 +78,15 @@ Notes:
 - `@Recycle`, `@Recently-Snapshot`, `.Trash` and similar folders are skipped
   (configurable via `exclude_names`).
 - Reports and the catalogue contain real file paths, so keep them out of git.
+
+## Hardware report (`hw_report.py`)
+
+Read-only report of this Mac's Thunderbolt and USB topology (with link speeds), storage, network
+interfaces and mounted shares, so you can see which cable or port is limiting a drive or the NAS.
+
+```bash
+storage/hw_report.py          # writes <report_dir>/hardware/hardware_report.txt and raw.json
+```
+
+Serial numbers, MAC addresses, UUIDs and share user names are redacted before anything is saved.
+Like the reports above, the output is for you only: keep it out of git.
