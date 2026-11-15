@@ -40,7 +40,9 @@ def excluded_paths(cfg, root):
     base = os.path.abspath(root)
     pre = base.rstrip("/") + "/"
     out = set()
-    for p in DEFAULT_EXCLUDE_PATHS + list(cfg.get("exclude_paths", [])):
+    # roots named in "carve_out" are scanned on their own, so any root that contains them skips them
+    carved = [cfg["roots"][n] for n in cfg.get("carve_out", []) if n in cfg.get("roots", {})]
+    for p in DEFAULT_EXCLUDE_PATHS + list(cfg.get("exclude_paths", [])) + carved:
         ap = os.path.abspath(os.path.expanduser(p))
         if ap != base and ap.startswith(pre):
             out.add(ap)
@@ -156,6 +158,10 @@ def load_config(path, _via=None):
     cfg["roots"] = {k: os.path.expanduser(v) for k, v in cfg["roots"].items()}
     cfg.setdefault("exclude_names", DEFAULT_EXCLUDE)
     cfg.setdefault("exclude_paths", [])
+    cfg.setdefault("carve_out", [])
+    for n in cfg["carve_out"]:
+        if n not in cfg["roots"]:
+            print(f"[warn] carve_out names '{n}', which is not a root in config.json (ignored)", file=sys.stderr)
     cfg.setdefault("min_dupe_bytes", 1_000_000)
     return cfg
 

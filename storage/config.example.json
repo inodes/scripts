@@ -12,5 +12,6 @@
     "Multimedia": "/Volumes/Multimedia",
     "Macintosh-HD": "/"
   },
-  "min_dupe_bytes": 1000000
+  "min_dupe_bytes": 1000000,
+  "carve_out": []
 }

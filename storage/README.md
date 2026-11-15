@@ -71,6 +71,10 @@ Notes:
   (the same data again) and a few system paths are skipped automatically; add more with `exclude_paths`
   (absolute folders). Grant your terminal Full Disk Access so protected folders can be read. Don't also keep a
   root inside it (e.g. `~/Pictures`): the scan warns because those files would be counted twice.
+- To look at a big folder of the main disk separately (a quick rescan, its own totals), add it as its own root and list the
+  root's name in `"carve_out": ["Pictures"]`. Any root that contains it then skips it automatically, so nothing is counted
+  twice and the overlap warning goes away. Leave the name out of `carve_out` to keep it in both. Re-scan the parent root
+  after changing this, since its earlier rows still include the folder.
 - The catalogue is a local SQLite file in WAL mode (never put it in iCloud).
 - Catalogues are only found inside scanned roots, so add your local Lightroom folder
   (`Lightroom-local` in the example config) as a root.
