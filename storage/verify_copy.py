@@ -13,6 +13,7 @@ Regenerable Final Cut cache (Thumbnail Media, .fcpcache, .DS_Store, __Sync__, @e
 does not fail the check. Nothing is ever written to SRC or DST. Exit status 0 = nothing at risk, 1 = something to look at.
 """
 import argparse, hashlib, os, sys, time
+from concurrent.futures import ThreadPoolExecutor
 
 SKIP_PARTS = ("Thumbnail Media",)
 SKIP_NAMES = {".DS_Store", ".fcpcache", "__Sync__", ".localized", "Thumbs.db"}
@@ -50,6 +51,13 @@ def sha(path):
     return h.hexdigest()
 
 
+def sha_pair(a, b):
+    """Hash both copies at the same time (they are on different drives, so this is about twice as fast)."""
+    with ThreadPoolExecutor(2) as ex:
+        fa, fb = ex.submit(sha, a), ex.submit(sha, b)
+        return fa.result() == fb.result()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("src"); ap.add_argument("dst")
@@ -63,7 +71,8 @@ def main():
             sys.exit(f"not a folder: {p}")
     res = {k: [] for k in ("missing", "src-newer", "size-diff", "hash-diff", "dst-newer")}
     ok = ign = nbytes = 0
-    t0 = time.time()
+    t0 = last = time.time()
+    done = hashed = 0
     for sub in a.sub:
         for rel, size, mt in walk(os.path.join(src, sub)):
             rel = os.path.join(sub, rel) if sub else rel
@@ -84,11 +93,16 @@ def main():
                 ok += 1
             elif size != st.st_size:
                 res["size-diff"].append(row)   # same timestamp, different size: suspicious/truncated
-            elif a.hash and sha(os.path.join(src, rel)) != sha(d):
+            elif a.hash and not sha_pair(os.path.join(src, rel), d):
                 res["hash-diff"].append(row)
+                print(f"\n[MISMATCH] {rel}", file=sys.stderr)
             else:
                 ok += 1
             nbytes += size
+            done += 1
+            if a.hash and time.time() - last > 10:
+                last = time.time()
+                print(f"\r  {done:,} files, {nbytes/1e9:,.1f} GB checked, {nbytes/1e6/(last-t0):.0f} MB/s - {rel[-70:]:70}", end="", file=sys.stderr, flush=True)
     lines = [f"Source:      {src}", f"Destination: {dst}", f"Checked {ok + sum(len(v) for k, v in res.items() if k != 'dst-newer')} files in {time.time()-t0:.0f}s"
              f" ({'with' if a.hash else 'without'} SHA-256); {ok} fine; {ign} regenerable cache files ignored"]
     ts = lambda t: time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if t else "-"
