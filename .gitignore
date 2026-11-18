@@ -46,3 +46,4 @@ scratch/
 
 # FUSE sandbox artefacts (never commit)
 .fuse_hidden*
+archive/
