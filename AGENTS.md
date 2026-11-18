@@ -1,5 +1,7 @@
 # AGENTS.md — AI Agent Operating Instructions & Architecture Reference
 
+> **Cross-project rules** (plan first, commit approval, dry-run, backups, PII, direnv, "verified") live in `~/iCloud/claude/AGENTS.md` - read them too. If you cannot see that file, tell the user. This file holds only what is specific to this repo.
+>
 > **Notice to AI Agents & Developers**:
 > This document is the authoritative operating instructions, architecture reference, and developer guide for `~/repos/scripts` — generic, shareable, and safe to commit (strictly zero PII).
 > **Every agent working in this repository MUST read this file upon startup, verify its accuracy against the current codebase, and keep it up-to-date after completing work.**
@@ -11,20 +13,18 @@
 ## 1. Core Operating Directives
 
 0. **Implementation Plans First — Explicit Permission Required Before Action**:
-   - **CRITICAL DIRECTIVE**: The agent MUST ALWAYS research, formulate, and present a clear plan before taking any modifying actions on user data or major architectural changes.
+   - Plan first, act only when approved: see `~/iCloud/claude/AGENTS.md`.
    - **NEVER MOVE, RENAME, OR DELETE USER PDFS WITHOUT APPROVAL**: Always default to `--dry-run` when demonstrating `--rename`, `--import`, or `--delete-duplicates` unless the user explicitly instructs you to execute the live operation.
 
 1. **Git Workflow, Commits & Zero-PII Directives**:
-   - **Check with User Prior to Committing**: Prior to executing any `git commit`, the agent MUST check with the user, describing both:
-     1. The changes made verbally in clear detail.
-     2. The exact proposed commit message(s).
+   - **Commits**: show the user the change and the exact proposed message first (global rule).
    - **Zero-PII Commitment Rule**: NO Personally Identifiable Information (PII) is ever committed (including in documentation, unit tests, commit messages, or `AGENTS.md` itself):
      - Never include local usernames in committed documentation or scripts; always use `$USER`, `$HOME`, or `~`.
      - PII includes: Real account numbers, BSBs, card numbers, balances, merchant transactions, statement PDFs (`*.pdf`), CSV exports (`*.csv`), or SQLite databases (`*.db`).
      - Non-PII includes: Sanitized `.example.json` templates (`config.example.json`) and synthetic unit-test fixtures (`sample_text` / `sample_variants` on providers).
    - **PII Never Lives in the Repo Working Tree At All**:
      - The SQLite database (`pdf_audit.db`) and cached PDF text live outside the repo in `~/Library/Application Support/pdf-audit/` (configured via `data_dir` in `finance/statements/config.py`), never inside `~/repos/scripts/`.
-     - Real personal configurations, private scan paths, and custom categorisation rules live in `~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json` and `category_rules.json` (matching the `~/repos/tesla` architecture). Only sanitized `.example.json` templates exist in the repository.
+     - Real personal configurations, private scan paths, and custom categorisation rules live in `~/iCloud/Finance/config.json` and `category_rules.json` (same pattern as `~/repos/tesla`). Only sanitized `.example.json` templates exist in the repository.
 
 2. **Per-Directory `direnv` + `.envrc` & Isolated `requirements.txt` (Mandatory)**:
    - **At all times**, `direnv` MUST be active with an appropriate `.envrc` (`layout python` + `.python-version`) in the repository directory, using a strictly confined local `requirements.txt` rather than global/system Python packages (matching the standard in `~/repos/tesla/.envrc`).
@@ -66,7 +66,7 @@
 scripts/
 ├── AGENTS.md                  # AI Agent operating instructions & architecture reference (committed, PII-free)
 ├── AGENTS.local.md            # Project journal: Active Requests, Bugs, TODOs, gap audits (gitignored)
-├── CLAUDE.md                  # Concise session quick-start pointer for Claude/AI agents (committed, PII-free)
+├── CLAUDE.md                  # One line, `@AGENTS.md`, so Claude Code loads this file (committed, PII-free)
 ├── README.md                  # User-facing overview, quick start, Hazel workflow, and CLI reference
 ├── LICENSE                    # MIT License
 ├── CONTRIBUTING.md            # Contribution guidelines
@@ -223,7 +223,7 @@ Before completing any task in `~/repos/scripts`:
    ```
 3. **Multi-Version Provider Self-Tests**:
    ```bash
-   PDF_AUDIT_CONFIG=config.example.json python3 -c "from statements import config; from statements.providers import AVAILABLE_PROVIDERS; cfg = config.load(); assert all(p.run_self_test(cfg)['ok'] for p in AVAILABLE_PROVIDERS if p.name != 'generic')"
+   cd finance && PDF_AUDIT_CONFIG=config.example.json python3 -c "from statements import config; from statements.providers import AVAILABLE_PROVIDERS; cfg = config.load(); assert all(p.run_self_test(cfg)['ok'] for p in AVAILABLE_PROVIDERS if p.name != 'generic')"
    ```
 4. **Zero-PII Check**:
    - Confirm `git status` shows no real PDFs, DBs, CSVs, `config.json`, or `AGENTS.local.md` staged.
