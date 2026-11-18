@@ -44,7 +44,7 @@ Create `<section>/pdf_handler.sh` obeying the contract in `process_pdf.sh` (0 ha
 ## Config vs data
 `config.json` holds settings only (locations, providers, rules). Your own data (remittances, ESS
 history, valuations, renovation costs, ...) lives as plain JSON in `directories.records`
-(`Finance/Data/<name>.json`, one file per dataset, safe in iCloud because it is not a database).
+(`Finance/Data/<name>.json`, one file per dataset, safe in a synced folder because it is not a database).
 An inline `"personal"` block in config.json is still read as a fallback; the data files win.
 
 ## Foreign-currency invoices and the optional bank cross-check
@@ -59,6 +59,6 @@ AGL bills are filed by the `agl` provider into `{invoices}/AGL` as `AGL_Statemen
 The reading is done by `finance/statements/providers/agl_parse.py` (`AGLBillParser`), which `~/repos/tesla` imports
 (its `config.json` `scripts_repo`) to pull usage and rates out of the same bills, so there is one copy of that code.
 Tesla finds the bills through its own `directories.power_invoices`. AGL leaflets and offers are not bills and stay in triage.
-The AGL folder is one shared folder: Tesla's `directories.power_invoices` points at `{invoices}/AGL` (`~/iCloud/Finance/Invoices_Receipts/AGL`)
+The AGL folder is one shared folder: Tesla's `directories.power_invoices` points at `{invoices}/AGL` (`<data root>/Finance/Invoices_Receipts/AGL`)
 and Tesla's manual usage CSVs (`AGL_YYYYMM.csv`, `MyUsageData_*.csv`) sit beside the bills. The CSVs are Tesla's inputs, so this
 repo does not read, rename or file them; keep that in mind before tidying the folder.

@@ -10,7 +10,7 @@ A pluggable, multi-provider financial statement & invoice auditing, parsing, dup
 finance/
 ├── statements/                    # Core Python package
 │   ├── __init__.py                # Package exports
-│   ├── config.py                  # Dynamic provider defaults + iCloud config loader
+│   ├── config.py                  # Dynamic provider defaults + config loader
 │   ├── money.py                   # High-precision Decimal arithmetic & sign parsing
 │   ├── pdf.py                     # Fast pypdf extraction + macOS kMDItemWhereFroms reader
 │   ├── store.py                   # SQLite database schema, statements & transaction store
@@ -36,7 +36,7 @@ finance/
 
 ---
 
-## Zero-PII iCloud Configuration (Mirroring `~/repos/tesla`)
+## Zero-PII configuration (mirroring `~/repos/tesla`)
 
 To keep `~/repos/scripts` strictly clean and shareable without leaking Personally Identifiable Information (PII) or local paths:
 
@@ -76,15 +76,15 @@ To keep `~/repos/scripts` strictly clean and shareable without leaking Personall
 ### 2. `sync_statements.py` — Statement Renaming & Filing
 ```bash
 # Preview standardized names for matching PDFs (dry run)
-./sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --dry-run
+./sync_statements.py <data root>/PDF --provider hsbc --where-from --import --dry-run
 
 # Execute import into provider folder and delete true binary duplicates
-./sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --delete-duplicates
+./sync_statements.py <data root>/PDF --provider hsbc --where-from --import --delete-duplicates
 ```
 
 ### 3. `fetch_email_invoices.py` — Automated Attachment Fetching
 ```bash
-# Download Apple receipts from the last 90 days to ~/iCloud/PDF
+# Download Apple receipts from the last 90 days to the PDF inbox
 ./fetch_email_invoices.py --target apple --since-days 90 --sync
 
 # Download Qantas travel itineraries & e-tickets
@@ -108,27 +108,27 @@ plus user-specific `category_rules` and provider scan directories, are read from
 `~/Library/Mobile Documents/com~apple~CloudDocs/Finance/config.json`. Nothing in the repository contains
 real identifiers; fixtures use fabricated values. See `config.example.json` for the shape.
 
-## File locations (one rule: nothing hard-codes an iCloud path)
+## File locations (one rule: nothing hard-codes a cloud or user path)
 
 Every location is defined once, in `statements/paths.py`, and comes from the `directories` section of
 `config.json` (values can reference each other, e.g. `"reports": "{finance}/Reports"`):
 
 | Key | Default | Holds |
 |---|---|---|
-| `icloud` | iCloud Drive root | |
-| `finance` | `{icloud}/Finance` | `config.json`, `category_rules.json` only |
+| `icloud` | Cloud-synced data root (config key name) | |
+| `finance` | `{data_root}/Finance` | `config.json`, `category_rules.json` only |
 | `statements` | `{finance}/Statements` | one sub-folder per provider, each with its own `Duplicates/` |
 | `payslips` | `{finance}/Payslips` | one sub-folder per employer, each with its own `Duplicates/` (payslip providers file here) |
 | `shares` | `{finance}/Shares` | equity exports |
 | `reports` | `{finance}/Reports` | generated `index.html` (or set `report_path`) |
-| `pdf` | `{icloud}/PDF` | Hazel staging folder |
+| `pdf` | `{data_root}/PDF` | Hazel staging folder |
 | `landing` | `~/Downloads` | |
 | `data` | `~/Library/Application Support/pdf-audit` | SQLite index: **local only** |
 | `logs` | `~/Library/Logs/Hazel` | `process_pdf.log` |
 
 `paths.check_destination()` is called before every move or write and refuses to:
-put a document or report loose in a container folder (iCloud root, Finance, Statements, Payslips, Shares);
-write anything inside the git repository; or keep the database in iCloud (sync can corrupt SQLite).
+put a document or report loose in a container folder (data root, Finance, Statements, Payslips, Shares);
+write anything inside the git repository; or keep the database in a synced folder (sync can corrupt SQLite).
 The report is written atomically (temp file, then rename). The database can always be rebuilt from the PDFs.
 
 ## `pdf_handler.sh` (Finance's hook into the generic dispatcher)

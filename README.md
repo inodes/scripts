@@ -44,10 +44,10 @@ finance/pdf_audit.py providers
 finance/sync_statements.py --providers
 
 # 2. Preview standardized names and import actions for a folder (dry-run)
-finance/sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --dry-run
+finance/sync_statements.py <data root>/PDF --provider hsbc --where-from --import --dry-run
 
 # 3. Import matched PDFs into their provider target_dir and delete true binary duplicates
-finance/sync_statements.py ~/iCloud/PDF --provider hsbc --where-from --import --delete-duplicates
+finance/sync_statements.py <data root>/PDF --provider hsbc --where-from --import --delete-duplicates
 
 # 4. Audit Hazel logs for unmatched PDFs or format drift, and scaffold a new provider
 finance/audit_hazel_logs.py

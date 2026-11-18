@@ -3,21 +3,21 @@
 Read-only audit of files scattered across the Mac, external drives (LaCie1) and
 the QNAP. It never moves, renames or deletes anything.
 
-Real settings live outside the repo in an iCloud folder that mirrors this one
-(`repos/scripts/storage` -> `<iCloud>/scripts/storage/config.json`). Nothing in the
+Real settings live outside the repo in a config folder that mirrors this one
+(`repos/scripts/storage` -> `<data root>/scripts/storage/config.json`). Nothing in the
 code spells that path out; it is found in this order:
 
 1. `--config PATH`
 2. `$STORAGE_AUDIT_CONFIG`
 3. a git-ignored `config.json` beside the script: either full settings or just a
    pointer, `{"config_file": "<path to the real config>"}`
-4. `<iCloud>/<repo name>/<section>/config.json`, with the iCloud root taken from
+4. `<data root>/<repo name>/<section>/config.json`, with the data root taken from
    `finance/statements/paths.py` (the one place that defines it, optionally set for all repos
-   by `~/.config/repos/config.json`, e.g. `{"icloud": "~/iCloud"}`)
+   by `~/.config/repos/config.json`, e.g. `{"icloud": "<data root>"}`)
 
 Copy `config.example.json` to the real location and edit the roots; the local pointer file is optional. The catalogue
 database stays local (`~/Library/Application Support/storage_audit/`), never in
-iCloud. Reports go to `report_dir` if set, otherwise a `reports/` folder beside
+a synced folder. Reports go to `report_dir` if set, otherwise a `reports/` folder beside
 `config.json`.
 
 ## Visual version
@@ -75,7 +75,7 @@ Notes:
   root's name in `"carve_out": ["Pictures"]`. Any root that contains it then skips it automatically, so nothing is counted
   twice and the overlap warning goes away. Leave the name out of `carve_out` to keep it in both. Re-scan the parent root
   after changing this, since its earlier rows still include the folder.
-- The catalogue is a local SQLite file in WAL mode (never put it in iCloud).
+- The catalogue is a local SQLite file in WAL mode (never put it in a synced folder).
 - Catalogues are only found inside scanned roots, so add your local Lightroom folder
   (`Lightroom-local` in the example config) as a root.
 - Re-scanning a root replaces its rows, so run `dupes` again afterwards.
@@ -103,3 +103,9 @@ destination holds every file in the source and nothing on the source is newer. I
 mismatches and (with `--hash`) SHA-256 mismatches; files edited later on the destination are listed as fine. Final Cut cache (Thumbnail Media,
 `.fcpcache`) is ignored. Exit status 1 means something needs copying before the source is retired. `--hash` reads both copies in full, so run it
 per bundle, ideally overnight.
+
+## Rebuilding an Aperture library's folders (`aperture_reconstruct.py`)
+Aperture keeps masters in an arbitrary `Masters/YYYY/MM/DD/...` layout; the Folder > Project tree you saw exists only in `Database/apdb/Library.apdb`.
+`python3 aperture_reconstruct.py LIB.aplibrary --tree` prints that tree with counts. `... --dest /Volumes/Target --dry-run` writes a plan and report
+(files, GB, missing masters, same-name clashes, free-space check) and copies nothing; `--copy` then copies each master to
+`<dest>/<library name, without .aplibrary>/Projects/<Folder>/<Project>/[<Album>/]<file>` (albums inside a project become sub-folders; cross-project albums are only listed in an albums csv), keeping modified times and never touching the library. Same-name files in one project get `-2`, `-3`.
